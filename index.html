@@ -1,0 +1,2696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery tracking</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PapaParse for CSV processing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <!-- html2canvas for image generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .active-tab { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
+        .sort-header { cursor: pointer; user-select: none; }
+        .sort-header:hover { background-color: #334155; }
+        .active-card-filter { outline: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.45); }
+    </style>
+</head>
+<body class="p-6">
+
+    <!-- Header Section -->
+    <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6 mb-6">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl">🚚</span>
+                    <h1 class="text-2xl font-bold text-white tracking-tight">Delivery tracking</h1>
+                    <span id="syncBadge" class="bg-slate-700 text-slate-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-slate-600">Local Ready</span>
+                    <span class="bg-blue-900/60 text-blue-300 border border-blue-700/50 text-[11px] font-semibold px-2.5 py-0.5 rounded">Auto-Purge (Delivered & RTO Done)</span>
+                </div>
+                <p class="text-sm text-slate-400 mt-1">Operational Logic Processor, Dual Ageing (>5D / >10D), Multi-Device Cloud Sync & Live Exception Desk</p>
+            </div>
+            
+            <!-- Action Controls -->
+            <div class="flex flex-wrap items-center gap-3">
+                <button onclick="fetchCloudData()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium px-3.5 py-2 rounded-lg flex items-center gap-2 transition border border-slate-600">
+                    <i class="fa-solid fa-arrows-rotate"></i> Sync Cloud
+                </button>
+
+                <button id="openManageAssociatesModal" class="bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition border border-slate-600">
+                    ⚙️ Manage Associates
+                </button>
+
+                <label class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer flex items-center gap-2 transition shadow-sm">
+                    <i class="fa-solid fa-file-csv"></i> Upload Dump CSV
+                    <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                </label>
+                
+                <button onclick="clearCurrentSessionData()" class="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 text-xs font-semibold px-3 py-2 rounded-lg transition">
+                    <i class="fa-solid fa-trash-can mr-1"></i> Reset Data
+                </button>
+            </div>
+        </div>
+
+        <!-- Module Tabs -->
+        <div class="flex border-b border-slate-700 mt-6 gap-6 overflow-x-auto">
+            <button id="tabModule1" class="pb-3 text-sm active-tab flex items-center gap-2 shrink-0">
+                <i class="fa-solid fa-chart-line"></i> Delivery Dashboard (Till Date)
+            </button>
+            <button id="tabModule2" class="pb-3 text-sm text-slate-400 hover:text-slate-200 flex items-center gap-2 shrink-0">
+                <i class="fa-solid fa-boxes-packing"></i> Active Exception IDs
+            </button>
+            <button id="tabModule3" class="pb-3 text-sm text-slate-400 hover:text-slate-200 flex items-center gap-2 shrink-0">
+                <i class="fa-solid fa-ticket"></i> TT Raised Module
+                <span id="ttCountBadge" class="bg-amber-900/60 border border-amber-600/60 text-amber-300 text-[10px] px-2 py-0.2 rounded-full font-bold">0</span>
+            </button>
+            <button id="tabModule4" class="pb-3 text-sm text-slate-400 hover:text-slate-200 flex items-center gap-2 shrink-0">
+                <i class="fa-solid fa-barcode"></i> HFCR Tracking
+                <span id="hfcrCountBadge" class="bg-cyan-900/60 border border-cyan-600/60 text-cyan-300 text-[10px] px-2 py-0.2 rounded-full font-bold">0</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MODULE 1: Performance Dashboard -->
+    <div id="module1View" class="space-y-6">
+        
+        <!-- Filters -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg">
+            <div class="flex flex-col">
+                <label for="module1DateFilter" class="text-[11px] font-bold text-slate-300 uppercase mb-1">
+                    <i class="fa-solid fa-calendar-day text-blue-400 mr-1"></i> Day Wise (Inducted Date):
+                </label>
+                <select id="module1DateFilter" onchange="renderDashboard()" class="border border-slate-600 rounded-lg text-xs p-2 bg-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold text-slate-200">
+                    <option value="">All Inducted Dates</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col">
+                <label for="module1AssocFilter" class="text-[11px] font-bold text-slate-300 uppercase mb-1">
+                    <i class="fa-solid fa-user-check text-blue-400 mr-1"></i> Associate Name:
+                </label>
+                <select id="module1AssocFilter" onchange="renderDashboard()" class="border border-slate-600 rounded-lg text-xs p-2 bg-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold text-slate-200">
+                    <option value="">All Associates</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col">
+                <label for="module1TypeFilter" class="text-[11px] font-bold text-slate-300 uppercase mb-1">
+                    <i class="fa-solid fa-wallet text-blue-400 mr-1"></i> Payment Type:
+                </label>
+                <select id="module1TypeFilter" onchange="renderDashboard()" class="border border-slate-600 rounded-lg text-xs p-2 bg-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold text-slate-200">
+                    <option value="">All Payment Types</option>
+                    <option value="COD">COD</option>
+                    <option value="PREPAID">PREPAID</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Top Metrics Cards with Both >5 Days and >10 Days Ageing -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl shadow-lg flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase">Total Packages</p>
+                    <p id="totalPackagesCount" class="text-3xl font-extrabold text-white mt-1">0</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Active in DB: <span id="activeStoredCount" class="text-amber-400 font-bold">0</span></p>
+                </div>
+                <div class="p-3 bg-blue-900/50 text-blue-400 rounded-full text-xl border border-blue-700/50"><i class="fa-solid fa-boxes-stacked"></i></div>
+            </div>
+            
+            <!-- Ageing > 5 Days Card -->
+            <div id="card_Ageing5" onclick="filterM1TableByStatus('AGEING_5')" class="bg-slate-800/80 border border-slate-700/60 hover:border-amber-500 p-5 rounded-xl shadow-lg flex justify-between items-center cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <p class="text-xs font-bold text-slate-400 group-hover:text-amber-300 transition uppercase">Ageing (&gt;5 Days)</p>
+                        <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-500 group-hover:text-amber-400"></i>
+                    </div>
+                    <p id="ageing5WarningCount" class="text-3xl font-extrabold text-amber-400 mt-1">0</p>
+                </div>
+                <div class="p-3 bg-amber-950/60 text-amber-400 rounded-full text-xl border border-amber-800/60"><i class="fa-solid fa-clock-rotate-left"></i></div>
+            </div>
+
+            <!-- Critical Ageing > 10 Days Card -->
+            <div id="card_CriticalAgeing" onclick="filterM1TableByStatus('CRITICAL_AGEING')" class="bg-slate-800/80 border border-slate-700/60 hover:border-rose-500 p-5 rounded-xl shadow-lg flex justify-between items-center cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <p class="text-xs font-bold text-slate-400 group-hover:text-rose-300 transition uppercase">Critical Ageing (&gt;10 Days)</p>
+                        <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-500 group-hover:text-rose-400"></i>
+                    </div>
+                    <p id="criticalAgeingWarningCount" class="text-3xl font-extrabold text-rose-500 mt-1">0</p>
+                </div>
+                <div class="p-3 bg-rose-950/60 text-rose-400 rounded-full text-xl border border-rose-800/60 group-hover:animate-bounce"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl shadow-lg flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase">Success Rate</p>
+                    <p id="successRate" class="text-3xl font-extrabold text-emerald-400 mt-1">0%</p>
+                </div>
+                <div class="p-3 bg-emerald-900/50 text-emerald-400 rounded-full text-xl border border-emerald-700/50"><i class="fa-solid fa-chart-pie"></i></div>
+            </div>
+        </div>
+
+        <!-- Primary Status Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-emerald-500">
+                <div class="flex justify-between items-center">
+                    <p class="text-xs font-bold text-slate-400">DELIVERED (TOTAL COUNT)</p>
+                    <span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.2 rounded font-bold">Purged</span>
+                </div>
+                <p id="statDelivered" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+            </div>
+            <div id="card_DeliveryFailed" onclick="filterM1TableByStatus('Delivery Failed')" class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-rose-500 cursor-pointer hover:border-rose-400 transition">
+                <div class="flex justify-between items-center">
+                    <p class="text-xs font-bold text-slate-400">DELIVERY FAILED</p>
+                    <i class="fa-solid fa-filter text-[10px] text-slate-500"></i>
+                </div>
+                <p id="statFailed" class="text-2xl font-bold text-rose-400 mt-1">0</p>
+            </div>
+            <div id="card_DeliveryRejected" onclick="filterM1TableByStatus('Delivery Rejected')" class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-amber-500 cursor-pointer hover:border-amber-400 transition">
+                <div class="flex justify-between items-center">
+                    <p class="text-xs font-bold text-slate-400">DELIVERY REJECTED</p>
+                    <i class="fa-solid fa-filter text-[10px] text-slate-500"></i>
+                </div>
+                <p id="statRejected" class="text-2xl font-bold text-amber-400 mt-1">0</p>
+            </div>
+            <div id="card_OutOnRoad" onclick="filterM1TableByStatus('Out On Road')" class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-indigo-500 cursor-pointer hover:border-indigo-400 transition">
+                <div class="flex justify-between items-center">
+                    <p class="text-xs font-bold text-slate-400">OUT ON ROAD</p>
+                    <i class="fa-solid fa-filter text-[10px] text-slate-500"></i>
+                </div>
+                <p id="statOutOnRoad" class="text-2xl font-bold text-indigo-400 mt-1">0</p>
+            </div>
+        </div>
+
+        <!-- Exception Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div id="card_HoldRedelivery" onclick="filterM1TableByStatus('Hold For Redelivery')" class="bg-slate-800/80 border border-slate-700/60 hover:border-amber-500 p-4 rounded-xl shadow-lg border-l-4 border-amber-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-amber-300">HOLD FOR REDELIVERY</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-amber-400"></i>
+                </div>
+                <p id="statHoldRedelivery" class="text-2xl font-bold text-amber-400 mt-1">0</p>
+            </div>
+
+            <div id="card_CoreDwell" onclick="filterM1TableByStatus('Core - Dwell')" class="bg-slate-800/80 border border-slate-700/60 hover:border-blue-500 p-4 rounded-xl shadow-lg border-l-4 border-blue-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-blue-300">CORE - DWELL</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-blue-400"></i>
+                </div>
+                <p id="statCoreDwell" class="text-2xl font-bold text-blue-400 mt-1">0</p>
+            </div>
+
+            <div id="card_RtoPending" onclick="filterM1TableByStatus('Ready For Fc Return / RTO Pending')" class="bg-slate-800/80 border border-slate-700/60 hover:border-purple-500 p-4 rounded-xl shadow-lg border-l-4 border-purple-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-purple-300">RTO PENDING</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-purple-400"></i>
+                </div>
+                <p id="statRtoPending" class="text-2xl font-bold text-purple-400 mt-1">0</p>
+            </div>
+
+            <div id="card_HoldCustomerReq" onclick="filterM1TableByStatus('Hold For Customer Request')" class="bg-slate-800/80 border border-slate-700/60 hover:border-cyan-500 p-4 rounded-xl shadow-lg border-l-4 border-cyan-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-cyan-300">HOLD FOR CUSTOMER REQ</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-cyan-400"></i>
+                </div>
+                <p id="statHoldCustomerReq" class="text-2xl font-bold text-cyan-400 mt-1">0</p>
+            </div>
+        </div>
+
+        <!-- Extended Operational Buckets Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div id="card_Undeliverable" onclick="filterM1TableByStatus('Undeliverable')" class="bg-slate-800/80 border border-slate-700/60 hover:border-rose-400 p-4 rounded-xl shadow-lg border-l-4 border-rose-400 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-rose-300">UNDELIVERABLE</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-rose-400"></i>
+                </div>
+                <p id="statUndeliverable" class="text-2xl font-bold text-rose-400 mt-1">0</p>
+            </div>
+
+            <!-- NEW DATA EXCEPTION CARD -->
+            <div id="card_DataException" onclick="filterM1TableByStatus('DATA_EXCEPTION')" class="bg-slate-800/80 border border-slate-700/60 hover:border-teal-500 p-4 rounded-xl shadow-lg border-l-4 border-teal-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-teal-300">DATA (EXC. DAMAGED/DLV/RTO)</p>
+                    <i class="fa-solid fa-database text-[11px] text-slate-500 group-hover:text-teal-400"></i>
+                </div>
+                <p id="statDataException" class="text-2xl font-bold text-teal-400 mt-1">0</p>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-violet-500">
+                <div class="flex justify-between items-center">
+                    <p class="text-xs font-bold text-slate-400">RTO DONE (TOTAL COUNT)</p>
+                    <span class="text-[9px] bg-violet-950 text-violet-300 border border-violet-800 px-1.5 py-0.2 rounded font-bold">Purged</span>
+                </div>
+                <p id="statRtoDone" class="text-2xl font-bold text-violet-400 mt-1">0</p>
+            </div>
+
+            <div id="card_Damaged" onclick="filterM1TableByStatus('Damaged')" class="bg-slate-800/80 border border-slate-700/60 hover:border-red-500 p-4 rounded-xl shadow-lg border-l-4 border-red-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-red-300">DAMAGED</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-red-400"></i>
+                </div>
+                <p id="statDamaged" class="text-2xl font-bold text-red-400 mt-1">0</p>
+            </div>
+
+            <div id="card_WrongStation" onclick="filterM1TableByStatus('At Wrong station')" class="bg-slate-800/80 border border-slate-700/60 hover:border-orange-500 p-4 rounded-xl shadow-lg border-l-4 border-orange-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
+                <div class="flex justify-between items-start">
+                    <p class="text-xs font-bold text-slate-400 group-hover:text-orange-300">AT WRONG STATION</p>
+                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-orange-400"></i>
+                </div>
+                <p id="statWrongStation" class="text-2xl font-bold text-orange-400 mt-1">0</p>
+            </div>
+        </div>
+
+        <!-- Associate Summary Table Card -->
+        <div id="m1ReportCard" class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                <div>
+                    <h3 id="m1TableTitle" class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-users text-blue-400"></i> Active Exception Performance Breakdown
+                    </h3>
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <p id="module1DateLabel" class="text-xs text-slate-400 font-medium">Showing report for: <b>All Dates</b></p>
+                        <button id="clearM1CardFilterBtn" onclick="clearM1CardFilter()" class="hidden text-xs bg-blue-900/60 text-blue-300 border border-blue-700/60 px-2.5 py-0.5 rounded hover:bg-blue-800 transition font-semibold">
+                            <i class="fa-solid fa-times mr-1"></i> Reset to Overall View
+                        </button>
+                    </div>
+                </div>
+                
+                <button id="copyWhatsAppImgBtn" onclick="copyWhatsAppTableImage()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+                    <i class="fa-solid fa-camera text-sm"></i> Copy Image (4K)
+                </button>
+            </div>
+
+            <div id="m1TableContainer" class="overflow-x-auto border border-slate-700 rounded-lg bg-slate-900/60 p-2">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead id="m1TableHeader" class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0"></thead>
+                    <tbody id="associateSummaryTable" class="divide-y divide-slate-700/60">
+                        <tr><td colspan="8" class="text-center py-6 text-slate-400">No active exception records found.</td></tr>
+                    </tbody>
+                    <tfoot id="associateSummaryFooter" class="bg-slate-800 font-bold text-white border-t-2 border-slate-700 hidden"></tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODULE 2: Active Exception Tracking ID Details -->
+    <div id="module2View" class="space-y-6 hidden">
+        <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
+            
+            <div id="activeQuickFilterBanner" class="hidden flex items-center justify-between bg-blue-950/40 border border-blue-800/60 rounded-lg p-2.5 mb-4 text-xs">
+                <span class="text-blue-300 flex items-center gap-2">
+                    <i class="fa-solid fa-filter"></i>
+                    <span>Filtering by: <b id="activeQuickFilterLabel" class="text-white"></b></span>
+                </span>
+                <button onclick="resetAllModule2Filters()" class="text-slate-400 hover:text-white underline text-[11px]">Clear Filter</button>
+            </div>
+
+            <!-- Detailed Multi-Filter Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+                <div class="relative lg:col-span-2">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400"></i>
+                    <input type="text" id="searchInput" placeholder="Search Active Tracking ID, Associate..." class="w-full pl-10 pr-4 py-2 border border-slate-600 rounded-lg text-xs bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div class="relative">
+                    <button id="btnMultiDate" onclick="toggleDropdown('dropdownDate')" class="w-full border border-slate-600 rounded-lg text-xs p-2 text-left bg-slate-900 text-slate-200 flex justify-between items-center">
+                        <span id="lblMultiDate" class="truncate">Day Wise Date</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-[10px]"></i>
+                    </button>
+                    <div id="dropdownDate" class="hidden absolute z-20 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-2 max-h-48 overflow-y-auto text-xs space-y-1"></div>
+                </div>
+
+                <div class="relative">
+                    <button id="btnMultiType" onclick="toggleDropdown('dropdownType')" class="w-full border border-slate-600 rounded-lg text-xs p-2 text-left bg-slate-900 text-slate-200 flex justify-between items-center">
+                        <span id="lblMultiType" class="truncate">All Types</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-[10px]"></i>
+                    </button>
+                    <div id="dropdownType" class="hidden absolute z-20 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-2 text-xs space-y-1">
+                        <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                            <input type="checkbox" value="COD" onchange="onMultiFilterChange()" class="multi-type-cb"> COD
+                        </label>
+                        <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                            <input type="checkbox" value="PREPAID" onchange="onMultiFilterChange()" class="multi-type-cb"> PREPAID
+                        </label>
+                    </div>
+                </div>
+
+                <div class="relative">
+                    <button id="btnMultiStatus" onclick="toggleDropdown('dropdownStatus')" class="w-full border border-slate-600 rounded-lg text-xs p-2 text-left bg-slate-900 text-slate-200 flex justify-between items-center">
+                        <span id="lblMultiStatus" class="truncate">Active Statuses</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-[10px]"></i>
+                    </button>
+                    <div id="dropdownStatus" class="hidden absolute z-20 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-2 max-h-48 overflow-y-auto text-xs space-y-1"></div>
+                </div>
+
+                <div class="relative">
+                    <button id="btnMultiAssociate" onclick="toggleDropdown('dropdownAssociate')" class="w-full border border-slate-600 rounded-lg text-xs p-2 text-left bg-slate-900 text-slate-200 flex justify-between items-center">
+                        <span id="lblMultiAssociate" class="truncate">Associate View</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-[10px]"></i>
+                    </button>
+                    <div id="dropdownAssociate" class="hidden absolute z-20 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-2 max-h-48 overflow-y-auto text-xs space-y-1"></div>
+                </div>
+            </div>
+
+            <!-- Dual Ageing Filter Sub-Bar -->
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-900/60 p-3 rounded-lg border border-slate-700">
+                <div class="flex flex-wrap items-center gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-amber-300">
+                        <input type="checkbox" id="chkAgeing5Only" onchange="onAgeingCheckboxChange('5')" class="rounded border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-500 h-4 w-4">
+                        <span>Ageing (&gt;5 Days)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-rose-400">
+                        <input type="checkbox" id="chkCriticalOnly" onchange="onAgeingCheckboxChange('10')" class="rounded border-slate-700 bg-slate-800 text-rose-500 focus:ring-rose-500 h-4 w-4">
+                        <span>Critical Ageing Warning (&gt;10 Days)</span>
+                    </label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="recordCountLabel" class="text-xs text-slate-400 font-medium">Showing 0 active exception records</span>
+                    <button id="exportCsvBtn" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition border border-slate-600">
+                        <i class="fa-solid fa-download"></i> Export Filtered CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tracking Table -->
+            <div class="overflow-x-auto max-h-[600px] border border-slate-700 rounded-lg">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('week')">Week <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('inductedDate')">Inducted Date <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('ageingDays')">Ageing <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('trackingId')">Tracking ID <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('associateName')">Associate Name <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('type')">Type <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('status')">Current Status <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                            <th class="px-4 py-3 text-amber-400 font-bold text-center">Manual Status Override</th>
+                            <th class="px-4 py-3 sort-header" onclick="sortTable('lastUpdatedTime')">Last Updated Time <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        </tr>
+                    </thead>
+                    <tbody id="trackingDetailsTable" class="divide-y divide-slate-700/60 bg-slate-900/40">
+                        <tr><td colspan="9" class="text-center py-6 text-slate-400">No active exception records found.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODULE 3: TT Raised Module -->
+    <div id="module3View" class="space-y-6 hidden">
+        <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-ticket text-amber-400"></i> TT Raised & Physically Not Available Investigation Desk
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-1">Active shipments manually overridden as <b>TT Raised</b> or <b>Physically Not Available</b></p>
+                </div>
+                <button onclick="exportTtTableCsv()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm">
+                    <i class="fa-solid fa-file-export"></i> Export TT Report CSV
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <input type="text" id="ttSearchInput" oninput="renderTtTable()" placeholder="Search TID, Remark..." class="w-full max-w-md pl-4 pr-4 py-2 border border-slate-600 rounded-lg text-xs bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+            </div>
+
+            <div class="overflow-x-auto border border-slate-700 rounded-lg bg-slate-900/60">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3">TID (Tracking ID)</th>
+                            <th class="px-4 py-3">Induct Date</th>
+                            <th class="px-4 py-3">Ageing Days</th>
+                            <th class="px-4 py-3">Override Reason</th>
+                            <th class="px-4 py-3 min-w-[200px]">TT Status</th>
+                            <th class="px-4 py-3 min-w-[260px]">Remark</th>
+                            <th class="px-4 py-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ttDetailsTable" class="divide-y divide-slate-700/60">
+                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No shipments in TT Raised or Physically Not Available state.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODULE 4: HFCR Tracking & Audit Desk -->
+    <div id="module4View" class="space-y-6 hidden">
+        <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
+            
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-barcode text-cyan-400"></i> Hold For Customer Request (HFCR) Physical Audit & Cross-Check Desk
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-1">Cross-check system HFCR active shipments against physically scanned inventory.</p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="clearHfcrPhysicalScans()" class="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs px-3 py-1.5 rounded-lg transition font-semibold">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Clear Scanned Cache
+                    </button>
+                    <button onclick="exportHfcrAuditCsv()" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs px-3.5 py-1.5 rounded-lg transition font-semibold flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-export"></i> Export Audit Report
+                    </button>
+                </div>
+            </div>
+
+            <!-- Barcode Scanner / Manual Input Dock -->
+            <div class="bg-slate-900 border-2 border-cyan-500/60 rounded-xl p-4 mb-6 shadow-inner">
+                <div class="flex flex-col md:flex-row items-center gap-3">
+                    <div class="relative flex-1 w-full">
+                        <i class="fa-solid fa-barcode absolute left-3.5 top-3 text-cyan-400 text-sm"></i>
+                        <input type="text" id="hfcrScanInput" placeholder="Scan Barcode or Type Tracking ID and Press Enter..." class="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                    </div>
+                    <button onclick="processManualHfcrScan()" class="w-full md:w-auto bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-6 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition">
+                        <i class="fa-solid fa-plus"></i> Submit Scan
+                    </button>
+                </div>
+                <div id="hfcrScanFeedback" class="mt-2 text-[11px] font-semibold hidden flex items-center gap-1.5"></div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Active HFCR in DB</p>
+                    <p id="hfcrTotalSystemCount" class="text-2xl font-extrabold text-white mt-1">0</p>
+                </div>
+                <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-emerald-500">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Verified / Physically Scanned</p>
+                    <p id="hfcrScannedMatchedCount" class="text-2xl font-extrabold text-emerald-400 mt-1">0</p>
+                </div>
+                <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-rose-500">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Missing / Pending Physical Check</p>
+                    <p id="hfcrMissingCount" class="text-2xl font-extrabold text-rose-400 mt-1">0</p>
+                </div>
+                <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-amber-500">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Scanned Unexpected / Foreign</p>
+                    <p id="hfcrUnexpectedCount" class="text-2xl font-extrabold text-amber-400 mt-1">0</p>
+                </div>
+            </div>
+
+            <!-- Table Filter Sub-Bar -->
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="setHfcrTableFilter('ALL')" id="hfcrBtnFilter_ALL" class="text-xs px-3 py-1.5 rounded-lg font-bold bg-cyan-600 text-white transition">All Active HFCR</button>
+                    <button onclick="setHfcrTableFilter('VERIFIED')" id="hfcrBtnFilter_VERIFIED" class="text-xs px-3 py-1.5 rounded-lg font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">Physically Verified</button>
+                    <button onclick="setHfcrTableFilter('MISSING')" id="hfcrBtnFilter_MISSING" class="text-xs px-3 py-1.5 rounded-lg font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">Missing Physical Scan</button>
+                    <button onclick="setHfcrTableFilter('UNEXPECTED')" id="hfcrBtnFilter_UNEXPECTED" class="text-xs px-3 py-1.5 rounded-lg font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">Unexpected Scans</button>
+                </div>
+                <input type="text" id="hfcrTableSearchInput" oninput="renderHfcrTable()" placeholder="Search TID, Associate..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
+            </div>
+
+            <!-- Verification Table -->
+            <div class="overflow-x-auto border border-slate-700 rounded-lg bg-slate-900/60 max-h-[500px]">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3">TID (Tracking ID)</th>
+                            <th class="px-4 py-3">Induct Date</th>
+                            <th class="px-4 py-3">Ageing Days</th>
+                            <th class="px-4 py-3">Associate Name</th>
+                            <th class="px-4 py-3">Physical Cross-Check Status</th>
+                            <th class="px-4 py-3">Scan Timestamp</th>
+                            <th class="px-4 py-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hfcrAuditTableBody" class="divide-y divide-slate-700/60">
+                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No HFCR data loaded from the dump CSV.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MANUAL STATUS OVERRIDE AUDIT DIALOG -->
+    <div id="manualOverrideModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border-2 border-amber-500/70 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-700">
+                <div class="flex items-center gap-2 text-amber-400">
+                    <i class="fa-solid fa-shield-halved text-xl"></i>
+                    <h3 class="text-base font-extrabold text-white">Manual Override Action Center</h3>
+                </div>
+                <button onclick="closeManualOverrideModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
+            </div>
+
+            <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-3 my-4 space-y-1.5 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Target TID:</span>
+                    <span id="modalTargetTid" class="font-mono font-bold text-white"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Current Exception Status:</span>
+                    <span id="modalOriginalStatus" class="font-semibold text-slate-300"></span>
+                </div>
+            </div>
+
+            <p class="text-[11px] text-slate-300 font-semibold mb-3">
+                Select an override action to assign:
+            </p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-5">
+                <button type="button" onclick="selectModalAction('Delivered')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-emerald-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></span>
+                    <span>Delivered</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('RTO Done')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-violet-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-violet-500 shrink-0"></span>
+                    <span>RTO Done</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('Hold For Redelivery')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-amber-400 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-amber-400 shrink-0"></span>
+                    <span>Hold For Redelivery</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('Ready For Fc Return / RTO Pending')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-purple-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-purple-500 shrink-0"></span>
+                    <span>RTO Pending</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('TT Raised')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-amber-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
+                    <span>TT Raised</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('Physically Not Available')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-rose-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition">
+                    <span class="w-3 h-3 rounded-full bg-rose-500 shrink-0"></span>
+                    <span>Physically Not Available</span>
+                </button>
+
+                <button type="button" onclick="selectModalAction('Damaged')" class="override-action-btn flex items-center gap-2.5 p-2.5 bg-slate-900 border border-slate-700 hover:border-red-500 rounded-lg text-left text-xs font-semibold text-slate-200 transition sm:col-span-2">
+                    <span class="w-3 h-3 rounded-full bg-red-600 shrink-0"></span>
+                    <span>Damaged</span>
+                </button>
+            </div>
+
+            <!-- Confirmation Prompt Box -->
+            <div id="modalConfirmPromptBox" class="hidden bg-amber-950/40 border border-amber-600/70 p-3 rounded-xl mb-4 text-xs">
+                <p class="font-bold text-amber-300 flex items-center gap-1.5 mb-1">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Confirm Status Override</span>
+                </p>
+                <p class="text-slate-300 text-[11px] leading-relaxed">
+                    Override TID <span id="confirmTidSpan" class="font-mono font-bold text-white"></span> to <span id="confirmTargetStatusSpan" class="font-bold text-amber-300 underline"></span>?
+                    <span id="evictionHint" class="hidden block text-rose-400 mt-1 font-semibold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Setting to Delivered or RTO Done will permanently purge this Tracking ID from active exception tables while retaining the count in summary metrics.</span>
+                    <span id="ttModuleHint" class="hidden block text-emerald-400 mt-1 font-semibold"><i class="fa-solid fa-circle-info mr-1"></i>This shipment will register in the TT Raised Module.</span>
+                </p>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-700">
+                <button type="button" onclick="closeManualOverrideModal()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-4 py-2 rounded-lg font-semibold">Cancel</button>
+                <button type="button" id="btnCommitModalOverride" onclick="commitModalOverride()" disabled class="bg-emerald-600 opacity-50 cursor-not-allowed text-white text-xs px-4 py-2 rounded-lg font-bold flex items-center gap-1.5 shadow-sm transition">
+                    <i class="fa-solid fa-check"></i> Commit Override
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: Upload Modal -->
+    <div id="uploadTypeModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="text-2xl text-blue-400"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+                <h3 class="text-base font-bold text-white">Upload Tracking Dump</h3>
+            </div>
+            
+            <p class="text-xs text-slate-400 mb-4">Choose how you want to process this dump file:</p>
+
+            <div class="space-y-3 mb-6">
+                <div id="optNewDataCard" class="p-3 border-2 border-blue-500 bg-blue-950/30 rounded-xl cursor-pointer transition" onclick="selectUploadOption('NEW')">
+                    <span class="text-xs font-bold text-blue-200 flex items-center gap-2">
+                        <input type="radio" id="radioNewData" name="uploadType" value="NEW" checked class="text-blue-600"> 
+                        🆕 Fresh Shift Induction
+                    </span>
+                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Upload fresh induction dataset and specify a new Inducted Date.</p>
+                    
+                    <div id="newDataDateContainer" class="mt-3 pl-5">
+                        <label class="text-[10px] font-bold text-slate-300 block mb-1">Select Inducted Date:</label>
+                        <input type="date" id="newInductedDateInput" class="w-full border border-slate-600 rounded-lg p-2 text-xs bg-slate-900 text-white focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <div id="optLatestDataCard" class="p-3 border-2 border-slate-700 rounded-xl cursor-pointer transition hover:border-blue-400" onclick="selectUploadOption('LATEST')">
+                    <span class="text-xs font-bold text-slate-200 flex items-center gap-2">
+                        <input type="radio" id="radioLatestData" name="uploadType" value="LATEST" class="text-blue-600"> 
+                        ⚡ In-Day Status Update
+                    </span>
+                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Update status for existing batches without overwriting original inducted dates.</p>
+                </div>
+            </div>
+            
+            <div class="flex justify-end gap-2">
+                <button id="cancelUploadModalBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-4 py-2 rounded-lg">Cancel</button>
+                <button id="confirmUploadModalBtn" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-5 py-2 rounded-lg font-semibold flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-check"></i> Process & Load
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Associate Master Management -->
+    <div id="manageAssociatesModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-4xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-start mb-1">
+                <div>
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <span>⚙️</span> Associate Master Database
+                    </h3>
+                    <p class="text-xs text-slate-400">Map Driver IDs to Associate Names for this session.</p>
+                </div>
+                <button id="closeModalBtn" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 my-4">
+                <input type="text" id="assocDriverId" placeholder="Driver ID (e.g. DRV101)" class="border border-slate-600 rounded-lg p-2.5 text-xs bg-slate-900 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                <input type="text" id="assocName" placeholder="Associate Name" class="border border-slate-600 rounded-lg p-2.5 text-xs bg-slate-900 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                <input type="text" id="assocFacility" placeholder="Facility ID" class="border border-slate-600 rounded-lg p-2.5 text-xs bg-slate-900 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                <select id="assocType" class="border border-slate-600 rounded-lg p-2.5 text-xs bg-slate-900 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                    <option value="NDA-Bike">NDA-Bike</option>
+                    <option value="NDA-Van">NDA-Van</option>
+                    <option value="Station Team">Station Team</option>
+                </select>
+            </div>
+
+            <div class="flex justify-between items-center mb-4">
+                <p class="text-xs text-slate-400 italic">Mappings will be saved strictly to this separate tracker.</p>
+                <button id="saveUpdateAssocBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-5 py-2.5 rounded-lg flex items-center gap-2 shadow-sm transition">
+                    + Save Mapping
+                </button>
+            </div>
+
+            <div class="flex justify-between items-center mb-3">
+                <span id="assocCountLabel" class="text-xs font-semibold text-slate-300">0 Driver Mappings Saved</span>
+                <div class="flex gap-2">
+                    <button id="exportJsonBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition">Export JSON</button>
+                    <label class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition cursor-pointer">
+                        Import JSON
+                        <input type="file" id="importJsonInput" accept=".json" class="hidden">
+                    </label>
+                </div>
+            </div>
+
+            <div class="overflow-y-auto max-h-72 border border-slate-700 rounded-xl flex-1 bg-slate-900/50">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead class="bg-slate-800 text-slate-200 sticky top-0 border-b border-slate-700">
+                        <tr>
+                            <th class="px-4 py-2.5">Driver ID</th>
+                            <th class="px-4 py-2.5">Associate Name</th>
+                            <th class="px-4 py-2.5">Facility ID</th>
+                            <th class="px-4 py-2.5">Type</th>
+                            <th class="px-4 py-2.5 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assocTableBody" class="divide-y divide-slate-700/60"></tbody>
+                </table>
+            </div>
+
+            <div class="mt-4 flex justify-end">
+                <button id="closeModalBottomBtn" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-6 py-2.5 rounded-lg">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script Engine -->
+    <script>
+        const G_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzmVZrPIFdDMoDzMCVBjcKSkdGv3DprN3uygwJCR886sIg-mlmyV27nGWNLNlLzidGjEg/exec";
+
+        const STORAGE_KEY_DATA = 'delivery_tracking_standalone_data'; 
+        const STORAGE_KEY_ASSOC = 'delivery_tracking_standalone_assoc';
+        const STORAGE_KEY_OVERRIDES = 'delivery_tracking_overrides'; 
+        const STORAGE_KEY_HFCR_SCANS = 'delivery_tracking_hfcr_scans';
+        const STORAGE_KEY_CUMULATIVE_DELIVERED = 'delivery_tracking_cum_delivered';
+        const STORAGE_KEY_CUMULATIVE_RTODONE = 'delivery_tracking_cum_rtodone';
+
+        let currentDataset = []; 
+        let currentlyFilteredData = [];
+        let savedHistory = JSON.parse(localStorage.getItem(STORAGE_KEY_DATA) || '[]');
+        let associateMap = JSON.parse(localStorage.getItem(STORAGE_KEY_ASSOC) || '{}');
+        let overrideMap = JSON.parse(localStorage.getItem(STORAGE_KEY_OVERRIDES) || '{}'); 
+        let hfcrScannedMap = JSON.parse(localStorage.getItem(STORAGE_KEY_HFCR_SCANS) || '{}');
+
+        let cumulativeDeliveredCount = parseInt(localStorage.getItem(STORAGE_KEY_CUMULATIVE_DELIVERED) || '0', 10);
+        let cumulativeRtoDoneCount = parseInt(localStorage.getItem(STORAGE_KEY_CUMULATIVE_RTODONE) || '0', 10);
+
+        let pendingFile = null;
+        let selectedUploadType = 'NEW';
+        let currentSort = { column: '', asc: true };
+        let currentM1Sort = { column: '', asc: true };
+
+        let currentM1SummaryData = [];
+        let activeSelectedCardStatus = null;
+        let hfcrTableCurrentFilter = 'ALL';
+        let activeOverrideTid = null;
+        let selectedOverrideAction = null;
+
+        // UI elements
+        const syncBadge = document.getElementById('syncBadge');
+        const csvFileInput = document.getElementById('csvFileInput');
+        const tabModule1 = document.getElementById('tabModule1');
+        const tabModule2 = document.getElementById('tabModule2');
+        const tabModule3 = document.getElementById('tabModule3');
+        const tabModule4 = document.getElementById('tabModule4');
+
+        const module1View = document.getElementById('module1View');
+        const module2View = document.getElementById('module2View');
+        const module3View = document.getElementById('module3View');
+        const module4View = document.getElementById('module4View');
+
+        const ttCountBadge = document.getElementById('ttCountBadge');
+        const hfcrCountBadge = document.getElementById('hfcrCountBadge');
+
+        const module1DateFilter = document.getElementById('module1DateFilter');
+        const module1AssocFilter = document.getElementById('module1AssocFilter');
+        const module1TypeFilter = document.getElementById('module1TypeFilter');
+        const module1DateLabel = document.getElementById('module1DateLabel');
+        const clearM1CardFilterBtn = document.getElementById('clearM1CardFilterBtn');
+        const m1TableTitle = document.getElementById('m1TableTitle');
+        const m1TableHeader = document.getElementById('m1TableHeader');
+        
+        const uploadTypeModal = document.getElementById('uploadTypeModal');
+        const newInductedDateInput = document.getElementById('newInductedDateInput');
+        const cancelUploadModalBtn = document.getElementById('cancelUploadModalBtn');
+        const confirmUploadModalBtn = document.getElementById('confirmUploadModalBtn');
+        const newDataDateContainer = document.getElementById('newDataDateContainer');
+
+        const openManageAssociatesModal = document.getElementById('openManageAssociatesModal');
+        const manageAssociatesModal = document.getElementById('manageAssociatesModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const closeModalBottomBtn = document.getElementById('closeModalBottomBtn');
+        
+        const assocDriverId = document.getElementById('assocDriverId');
+        const assocName = document.getElementById('assocName');
+        const assocFacility = document.getElementById('assocFacility');
+        const assocType = document.getElementById('assocType');
+        const saveUpdateAssocBtn = document.getElementById('saveUpdateAssocBtn');
+        const assocCountLabel = document.getElementById('assocCountLabel');
+        const assocTableBody = document.getElementById('assocTableBody');
+        const exportJsonBtn = document.getElementById('exportJsonBtn');
+        const importJsonInput = document.getElementById('importJsonInput');
+
+        const searchInput = document.getElementById('searchInput');
+        const exportCsvBtn = document.getElementById('exportCsvBtn');
+
+        const hfcrScanInput = document.getElementById('hfcrScanInput');
+        const hfcrScanFeedback = document.getElementById('hfcrScanFeedback');
+
+        window.onload = () => {
+            renderAssociatesList();
+            
+            savedHistory = savedHistory.filter(i => {
+                const eff = getEffectiveStatus(i);
+                return eff !== 'Delivered' && eff !== 'RTO Done';
+            });
+            localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+            currentDataset = [...savedHistory];
+
+            renderDashboard();
+            updateBadges();
+
+            if (hfcrScanInput) {
+                hfcrScanInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        processManualHfcrScan();
+                    }
+                });
+            }
+
+            if (isValidCloudUrl()) {
+                fetchCloudData();
+            } else {
+                syncBadge.className = 'bg-slate-700 text-slate-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-slate-600';
+                syncBadge.innerHTML = '<i class="fa-solid fa-hard-drive mr-1"></i> Local Device Mode';
+            }
+        };
+
+        function isValidCloudUrl() {
+            return G_SHEET_API_URL && G_SHEET_API_URL.startsWith('https://script.google.com');
+        }
+
+        async function fetchCloudData() {
+            if (!isValidCloudUrl()) return;
+
+            syncBadge.className = 'bg-amber-950 text-amber-300 border border-amber-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+            syncBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-down mr-1 animate-spin"></i> Syncing...';
+
+            try {
+                const res = await fetch(G_SHEET_API_URL, { redirect: 'follow' });
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                const cloudData = await res.json();
+
+                if (cloudData.activeDataset) {
+                    savedHistory = cloudData.activeDataset
+                        .filter(i => {
+                            const eff = i.status;
+                            return eff !== 'Delivered' && eff !== 'RTO Done';
+                        })
+                        .map(i => ({
+                            ...i,
+                            inductedDate: cleanDateString(i.inductedDate)
+                        }));
+                    currentDataset = [...savedHistory];
+                    localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+                }
+
+                if (cloudData.metrics) {
+                    cumulativeDeliveredCount = cloudData.metrics.delivered || 0;
+                    cumulativeRtoDoneCount = cloudData.metrics.rtoDone || 0;
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
+                }
+
+                if (cloudData.overrideMap) {
+                    overrideMap = cloudData.overrideMap;
+                    localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+                }
+
+                if (cloudData.hfcrScans) {
+                    hfcrScannedMap = cloudData.hfcrScans;
+                    localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
+                }
+
+                if (cloudData.associateMap && Object.keys(cloudData.associateMap).length > 0) {
+                    associateMap = cloudData.associateMap;
+                    localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
+                    renderAssociatesList();
+                }
+
+                renderDashboard();
+                renderTtTable();
+                renderHfcrTable();
+                updateBadges();
+
+                syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> G-Sheet Synced';
+            } catch (err) {
+                console.warn("Cloud fetch failed, using local offline copy:", err);
+                syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Offline Mode';
+            }
+        }
+
+        async function pushCloudData() {
+            if (!isValidCloudUrl()) return;
+
+            syncBadge.className = 'bg-amber-950 text-amber-300 border border-amber-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+            syncBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-1 animate-spin"></i> Saving to Cloud...';
+
+            try {
+                const payload = {
+                    activeDataset: savedHistory,
+                    metrics: {
+                        delivered: cumulativeDeliveredCount,
+                        rtoDone: cumulativeRtoDoneCount
+                    },
+                    overrideMap: overrideMap,
+                    hfcrScans: hfcrScannedMap,
+                    associateMap: associateMap
+                };
+
+                await fetch(G_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+
+                syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> G-Sheet Synced';
+            } catch (err) {
+                console.error("Cloud push failed:", err);
+                syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Save Failed';
+            }
+        }
+
+        async function clearCurrentSessionData() {
+            if (confirm("Reset tracking data, cumulative counts, and manual overrides?")) {
+                localStorage.removeItem(STORAGE_KEY_DATA);
+                localStorage.removeItem(STORAGE_KEY_OVERRIDES);
+                localStorage.removeItem(STORAGE_KEY_HFCR_SCANS);
+                localStorage.removeItem(STORAGE_KEY_CUMULATIVE_DELIVERED);
+                localStorage.removeItem(STORAGE_KEY_CUMULATIVE_RTODONE);
+
+                savedHistory = [];
+                currentDataset = [];
+                currentlyFilteredData = [];
+                overrideMap = {};
+                hfcrScannedMap = {};
+                cumulativeDeliveredCount = 0;
+                cumulativeRtoDoneCount = 0;
+
+                renderDashboard();
+                renderTtTable();
+                renderHfcrTable();
+                updateBadges();
+
+                await pushCloudData();
+            }
+        }
+
+        function sanitizeTrackingId(rawId) {
+            if (!rawId) return 'N/A';
+            let str = String(rawId).replace(/^'+/, '').trim();
+            if (!str || str.toUpperCase() === 'N/A') return 'N/A';
+            if (/^[+\-]?\d+(\.\d+)?[eE][+\-]?\d+$/.test(str)) {
+                try {
+                    str = BigInt(Math.round(Number(str))).toString();
+                } catch (e) {
+                    str = Number(str).toLocaleString('fullwide', { useGrouping: false });
+                }
+            }
+            return str;
+        }
+
+        function cleanDateString(rawDate) {
+            if (!rawDate || rawDate === 'N/A' || rawDate === 'null' || rawDate === 'undefined') return 'N/A';
+            let str = String(rawDate).replace(/^'+/, '').trim();
+            
+            const isoMatch = str.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})/);
+            if (isoMatch) {
+                const y = isoMatch[1];
+                const m = isoMatch[2].padStart(2, '0');
+                const d = isoMatch[3].padStart(2, '0');
+                return `${d}-${m}-${y}`;
+            }
+
+            const ddmmyyyyMatch = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})/);
+            if (ddmmyyyyMatch) {
+                const d = ddmmyyyyMatch[1].padStart(2, '0');
+                const m = ddmmyyyyMatch[2].padStart(2, '0');
+                const y = ddmmyyyyMatch[3];
+                return `${d}-${m}-${y}`;
+            }
+
+            return str;
+        }
+
+        function parseToDateObject(rawDate) {
+            if (!rawDate || rawDate === 'N/A') return null;
+            if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? null : rawDate;
+
+            const str = cleanDateString(rawDate);
+            const match = str.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+            if (match) {
+                const d = parseInt(match[1], 10);
+                const m = parseInt(match[2], 10) - 1;
+                const y = parseInt(match[3], 10);
+                return new Date(y, m, d);
+            }
+
+            const fallback = new Date(str);
+            return isNaN(fallback.getTime()) ? null : fallback;
+        }
+
+        function formatDateOnly(rawDate) {
+            return cleanDateString(rawDate);
+        }
+
+        function calculateAgeingDays(inductedDateStr) {
+            const inducted = parseToDateObject(inductedDateStr);
+            if (!inducted) return 0;
+
+            const today = new Date();
+            const todayClean = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            const inductedClean = new Date(inducted.getFullYear(), inducted.getMonth(), inducted.getDate());
+            
+            const diffTime = todayClean.getTime() - inductedClean.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            return diffDays >= 0 ? diffDays : 0;
+        }
+
+        function isAgeing5(status, inductedDateStr) {
+            if (status === 'Delivered' || status === 'RTO Done' || status === 'Damaged' || status === 'Physically Not Available') return false;
+            return calculateAgeingDays(inductedDateStr) > 5;
+        }
+
+        function isCriticalAgeing10(status, inductedDateStr) {
+            if (status === 'Delivered' || status === 'RTO Done' || status === 'Damaged' || status === 'Physically Not Available') return false;
+            return calculateAgeingDays(inductedDateStr) > 10;
+        }
+
+        function getEffectiveStatus(item) {
+            const cleanTid = sanitizeTrackingId(item.trackingId);
+            if (overrideMap[cleanTid] && overrideMap[cleanTid].overrideStatus) {
+                return overrideMap[cleanTid].overrideStatus;
+            }
+            return item.status;
+        }
+
+        function getWeekFromInductedDate(inductedDateStr) {
+            const dateObj = parseToDateObject(inductedDateStr);
+            if (!dateObj) return 'N/A';
+            const target = new Date(dateObj.valueOf());
+            const dayNr = (dateObj.getDay() + 6) % 7;
+            target.setDate(target.getDate() - dayNr + 3);
+            const firstThursday = target.valueOf();
+            target.setMonth(0, 1);
+            if (target.getDay() !== 4) target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+            return `Week ${1 + Math.ceil((firstThursday - target) / 604800000)}`;
+        }
+
+        function getType(receivableVal) {
+            if (!receivableVal) return 'PREPAID';
+            const val = String(receivableVal).trim().toLowerCase();
+            return (val === '' || val === '0' || val === '0.00' || val === 'nil' || val === 'null') ? 'PREPAID' : 'COD';
+        }
+
+        function getField(row, possibleKeys) {
+            for (let k in row) {
+                const clean = k.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (possibleKeys.includes(clean)) {
+                    return String(row[k] || '').trim();
+                }
+            }
+            return '';
+        }
+
+        function computeCurrentStatus(row) {
+            const state = getField(row, ['state', 'status', 'currentstatus']);
+            const destination = getField(row, ['destination', 'destinationnode', 'destnode']);
+            const reason = getField(row, ['reason', 'reasons', 'failurereason']);
+
+            const stateUpper = state.toUpperCase();
+            const destUpper = destination.toUpperCase();
+            const reasonUpper = reason.toUpperCase();
+
+            if (stateUpper === 'RECEIVED' && destUpper.includes('CUSTOMER_ADDRESS') && (reasonUpper === '' || reasonUpper === 'NILL' || reasonUpper === 'NIL' || reasonUpper === 'NULL')) {
+                return 'Hold For Redelivery';
+            }
+            if (stateUpper === 'CASH AT STATION' || stateUpper === 'DELIVERED CASH IN ASSOCIATE' || stateUpper === 'DELIVERED') {
+                return 'Delivered';
+            }
+            if (stateUpper === 'DELIVERY FAILED' && reasonUpper === 'OTHER') {
+                return 'Undeliverable';
+            }
+            if (stateUpper === 'DELIVERY FAILED' && reasonUpper !== 'OTHER') {
+                return 'Delivery Failed';
+            }
+            if (stateUpper === 'HELD' && reasonUpper.includes('PENDING CUSTOMER FEEDBACK')) {
+                return 'Hold For Customer Request';
+            }
+            if (stateUpper === 'MARKED FOR REPROCESS') {
+                return 'Ready For Fc Return / RTO Pending';
+            }
+            if (stateUpper === 'HELD' && reasonUpper.includes('PENDING VERIFICATION')) {
+                return 'Ready For Fc Return / RTO Pending';
+            }
+            if (stateUpper === 'RECEIVED' && destUpper.includes('MIDDLE_MILE_NODE')) {
+                return 'Ready For Fc Return / RTO Pending';
+            }
+            if (stateUpper === 'REMOVED') {
+                return 'Damaged';
+            }
+            if (stateUpper === 'INDUCTED' || stateUpper === 'INDUCT') {
+                return 'Core - Dwell';
+            }
+            if (stateUpper === 'DELIVERY REJECTED') {
+                return 'Delivery Rejected';
+            }
+            if (stateUpper === 'MARKED FOR PROBLEM') {
+                return 'At Wrong station';
+            }
+            if (stateUpper === 'IN TRANSIT (DS -> FC)' || stateUpper === 'IN TRANSIT(DS -> FC)') {
+                return 'RTO Done';
+            }
+            if (stateUpper === 'IN TRANSIT (DS -> CUSTOMER)' || stateUpper === 'IN TRANSIT(DS -> CUSTOMER)') {
+                return 'Out On Road';
+            }
+
+            return state || 'In Transit';
+        }
+
+        function computeModule1StatusCategory(status) {
+            if (!status) return 'EXCLUDE';
+            if (status === 'Delivered') return 'DELIVERED';
+            if (status === 'Delivery Failed' || status === 'Hold For Redelivery' || status === 'Hold For Customer Request' || status === 'TT Raised' || status === 'Physically Not Available') return 'FAILED';
+            if (status === 'Delivery Rejected' || status === 'Ready For Fc Return / RTO Pending' || status === 'Undeliverable') return 'REJECTED';
+            if (status === 'Out On Road') return 'OUT_ON_ROAD';
+            return 'EXCLUDE';
+        }
+
+        function getAssociateName(rawDriverId) {
+            if (!rawDriverId) return 'Unassigned';
+            const cleanId = String(rawDriverId).trim().toUpperCase();
+            for (let key in associateMap) {
+                if (key.trim().toUpperCase() === cleanId) {
+                    const obj = associateMap[key];
+                    return (typeof obj === 'object' && obj !== null) ? (obj.name || 'Unassigned') : String(obj);
+                }
+            }
+            return 'Unassigned';
+        }
+
+        function extractDriverIdFromRow(row) {
+            for (let key in row) {
+                const normKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (['driverid', 'driver', 'daname', 'transporterid', 'associateid', 'associate'].includes(normKey)) {
+                    if (row[key]) return String(row[key]).trim();
+                }
+            }
+            return '';
+        }
+
+        function openManualOverrideModal(tid) {
+            activeOverrideTid = sanitizeTrackingId(tid);
+            selectedOverrideAction = null;
+
+            const row = currentDataset.find(r => sanitizeTrackingId(r.trackingId) === activeOverrideTid);
+            const origStatus = row ? getEffectiveStatus(row) : 'Unknown';
+
+            document.getElementById('modalTargetTid').innerText = activeOverrideTid;
+            document.getElementById('modalOriginalStatus').innerText = origStatus;
+            
+            document.querySelectorAll('.override-action-btn').forEach(b => {
+                b.classList.remove('border-amber-400', 'bg-amber-950/40', 'ring-2', 'ring-amber-500');
+            });
+            document.getElementById('modalConfirmPromptBox').classList.add('hidden');
+            document.getElementById('evictionHint').classList.add('hidden');
+            document.getElementById('ttModuleHint').classList.add('hidden');
+
+            const commitBtn = document.getElementById('btnCommitModalOverride');
+            commitBtn.disabled = true;
+            commitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            document.getElementById('manualOverrideModal').classList.remove('hidden');
+        }
+
+        function closeManualOverrideModal() {
+            document.getElementById('manualOverrideModal').classList.add('hidden');
+            activeOverrideTid = null;
+            selectedOverrideAction = null;
+        }
+
+        function selectModalAction(actionName) {
+            selectedOverrideAction = actionName;
+
+            document.querySelectorAll('.override-action-btn').forEach(btn => {
+                const span = btn.querySelector('span:nth-child(2)');
+                if (span && span.innerText.trim() === actionName) {
+                    btn.classList.add('border-amber-400', 'bg-amber-950/40', 'ring-2', 'ring-amber-500');
+                } else {
+                    btn.classList.remove('border-amber-400', 'bg-amber-950/40', 'ring-2', 'ring-amber-500');
+                }
+            });
+
+            const confirmBox = document.getElementById('modalConfirmPromptBox');
+            document.getElementById('confirmTidSpan').innerText = activeOverrideTid;
+            document.getElementById('confirmTargetStatusSpan').innerText = actionName;
+            confirmBox.classList.remove('hidden');
+
+            const evictionHint = document.getElementById('evictionHint');
+            const ttHint = document.getElementById('ttModuleHint');
+
+            if (actionName === 'Delivered' || actionName === 'RTO Done') {
+                evictionHint.classList.remove('hidden');
+                ttHint.classList.add('hidden');
+            } else if (actionName === 'TT Raised' || actionName === 'Physically Not Available') {
+                evictionHint.classList.add('hidden');
+                ttHint.classList.remove('hidden');
+            } else {
+                evictionHint.classList.add('hidden');
+                ttHint.classList.add('hidden');
+            }
+
+            const commitBtn = document.getElementById('btnCommitModalOverride');
+            commitBtn.disabled = false;
+            commitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
+        async function commitModalOverride() {
+            if (!activeOverrideTid || !selectedOverrideAction) return;
+
+            if (selectedOverrideAction === 'Delivered' || selectedOverrideAction === 'RTO Done') {
+                if (selectedOverrideAction === 'Delivered') {
+                    cumulativeDeliveredCount++;
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
+                } else if (selectedOverrideAction === 'RTO Done') {
+                    cumulativeRtoDoneCount++;
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
+                }
+
+                savedHistory = savedHistory.filter(i => sanitizeTrackingId(i.trackingId) !== activeOverrideTid);
+                currentDataset = currentDataset.filter(i => sanitizeTrackingId(i.trackingId) !== activeOverrideTid);
+                localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+
+                delete overrideMap[activeOverrideTid];
+                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+            } else {
+                if (!overrideMap[activeOverrideTid]) {
+                    overrideMap[activeOverrideTid] = { overrideStatus: selectedOverrideAction, ttStatus: 'Not-Resolved', remark: '' };
+                } else {
+                    overrideMap[activeOverrideTid].overrideStatus = selectedOverrideAction;
+                }
+                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+            }
+
+            closeManualOverrideModal();
+            renderDashboard();
+            applyFiltersAndRender();
+            updateBadges();
+            renderTtTable();
+            renderHfcrTable();
+
+            await pushCloudData();
+        }
+
+        async function resetSingleOverrideFromModule3(tid) {
+            const cleanTid = sanitizeTrackingId(tid);
+            if (confirm(`Remove manual override for TID ${cleanTid} and revert to default CSV status?`)) {
+                delete overrideMap[cleanTid];
+                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+                renderDashboard();
+                applyFiltersAndRender();
+                updateBadges();
+                renderTtTable();
+                renderHfcrTable();
+
+                await pushCloudData();
+            }
+        }
+
+        async function updateTtStatus(tid, newTtStatus) {
+            const cleanTid = sanitizeTrackingId(tid);
+            if (overrideMap[cleanTid]) {
+                overrideMap[cleanTid].ttStatus = newTtStatus;
+                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+                renderTtTable();
+                await pushCloudData();
+            }
+        }
+
+        async function updateTtRemark(tid, newRemark) {
+            const cleanTid = sanitizeTrackingId(tid);
+            if (overrideMap[cleanTid]) {
+                overrideMap[cleanTid].remark = newRemark;
+                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+                await pushCloudData();
+            }
+        }
+
+        function updateBadges() {
+            const ttShipments = currentDataset.filter(item => {
+                const eff = getEffectiveStatus(item);
+                return eff === 'TT Raised' || eff === 'Physically Not Available';
+            });
+            ttCountBadge.innerText = ttShipments.length;
+
+            const hfcrShipments = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
+            hfcrCountBadge.innerText = hfcrShipments.length;
+        }
+
+        function filterM1TableByStatus(statusName) {
+            if (activeSelectedCardStatus === statusName) {
+                activeSelectedCardStatus = null;
+            } else {
+                activeSelectedCardStatus = statusName;
+            }
+
+            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
+            if (activeSelectedCardStatus) {
+                const cardMap = {
+                    'Delivery Failed': 'card_DeliveryFailed',
+                    'Delivery Rejected': 'card_DeliveryRejected',
+                    'Out On Road': 'card_OutOnRoad',
+                    'Hold For Redelivery': 'card_HoldRedelivery',
+                    'Core - Dwell': 'card_CoreDwell',
+                    'Ready For Fc Return / RTO Pending': 'card_RtoPending',
+                    'Hold For Customer Request': 'card_HoldCustomerReq',
+                    'Undeliverable': 'card_Undeliverable',
+                    'Damaged': 'card_Damaged',
+                    'At Wrong station': 'card_WrongStation',
+                    'DATA_EXCEPTION': 'card_DataException',
+                    'AGEING_5': 'card_Ageing5',
+                    'CRITICAL_AGEING': 'card_CriticalAgeing'
+                };
+                const activeId = cardMap[activeSelectedCardStatus];
+                if (activeId && document.getElementById(activeId)) {
+                    document.getElementById(activeId).classList.add('active-card-filter');
+                }
+            }
+
+            renderDashboard();
+
+            const reportCard = document.getElementById('m1ReportCard');
+            if (reportCard) {
+                reportCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function clearM1CardFilter() {
+            activeSelectedCardStatus = null;
+            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
+            renderDashboard();
+        }
+
+        function viewAssociateTrackingIds(associateName, specificStatus = null, ageingFilterType = null) {
+            resetAllModule2Filters();
+
+            if (associateName) {
+                document.querySelectorAll('.multi-assoc-cb').forEach(cb => {
+                    if (cb.value === associateName) cb.checked = true;
+                });
+                document.getElementById('lblMultiAssociate').innerText = associateName;
+            }
+
+            if (specificStatus && specificStatus !== 'AGEING_5' && specificStatus !== 'CRITICAL_AGEING' && specificStatus !== 'DATA_EXCEPTION') {
+                document.querySelectorAll('.multi-status-cb').forEach(cb => {
+                    if (cb.value === specificStatus) cb.checked = true;
+                });
+                document.getElementById('lblMultiStatus').innerText = specificStatus;
+            }
+
+            if (ageingFilterType === '5' || specificStatus === 'AGEING_5') {
+                document.getElementById('chkAgeing5Only').checked = true;
+                document.getElementById('chkCriticalOnly').checked = false;
+            } else if (ageingFilterType === '10' || specificStatus === 'CRITICAL_AGEING') {
+                document.getElementById('chkCriticalOnly').checked = true;
+                document.getElementById('chkAgeing5Only').checked = false;
+            }
+
+            const m1Date = module1DateFilter.value;
+            if (m1Date) {
+                document.querySelectorAll('.multi-date-cb').forEach(cb => {
+                    if (cb.value === m1Date) cb.checked = true;
+                });
+                document.getElementById('lblMultiDate').innerText = m1Date;
+            }
+
+            const banner = document.getElementById('activeQuickFilterBanner');
+            const bannerLabel = document.getElementById('activeQuickFilterLabel');
+            let bannerText = associateName ? `Associate: ${associateName}` : 'All Associates';
+            if (specificStatus && specificStatus !== 'AGEING_5' && specificStatus !== 'CRITICAL_AGEING' && specificStatus !== 'DATA_EXCEPTION') bannerText += ` | Status: ${specificStatus}`;
+            if (specificStatus === 'DATA_EXCEPTION') bannerText += ' | Status: DATA (Exc. Damaged/DLV/RTO)';
+            if (ageingFilterType === '5' || specificStatus === 'AGEING_5') bannerText += ' | Ageing >5D';
+            if (ageingFilterType === '10' || specificStatus === 'CRITICAL_AGEING') bannerText += ' | Critical Ageing >10D';
+            if (m1Date) bannerText += ` | Date: ${m1Date}`;
+            bannerLabel.innerText = bannerText;
+            banner.classList.remove('hidden');
+
+            switchToModule2();
+            applyFiltersAndRender();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function onAgeingCheckboxChange(changed) {
+            if (changed === '5' && document.getElementById('chkAgeing5Only').checked) {
+                document.getElementById('chkCriticalOnly').checked = false;
+            } else if (changed === '10' && document.getElementById('chkCriticalOnly').checked) {
+                document.getElementById('chkAgeing5Only').checked = false;
+            }
+            applyFiltersAndRender();
+        }
+
+        function toggleDropdown(id) {
+            const el = document.getElementById(id);
+            const isHidden = el.classList.contains('hidden');
+            document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+            if (isHidden) el.classList.remove('hidden');
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.relative')) {
+                document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+            }
+        });
+
+        function populateMultiSelectDropdowns() {
+            const dates = [...new Set(currentDataset.map(i => formatDateOnly(i.inductedDate)))].filter(d => d && d !== 'N/A').sort();
+            const statuses = [...new Set(currentDataset.map(i => getEffectiveStatus(i)))].filter(Boolean).sort();
+            const associates = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
+
+            const ddDate = document.getElementById('dropdownDate');
+            ddDate.innerHTML = dates.map(d => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${d}" onchange="onMultiFilterChange()" class="multi-date-cb"> ${d}
+                </label>
+            `).join('');
+
+            const ddStatus = document.getElementById('dropdownStatus');
+            ddStatus.innerHTML = statuses.map(s => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${s}" onchange="onMultiFilterChange()" class="multi-status-cb"> ${s}
+                </label>
+            `).join('');
+
+            const ddAssoc = document.getElementById('dropdownAssociate');
+            ddAssoc.innerHTML = associates.map(a => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${a}" onchange="onMultiFilterChange()" class="multi-assoc-cb"> ${a}
+                </label>
+            `).join('');
+        }
+
+        function getCheckedValues(className) {
+            return Array.from(document.querySelectorAll(`.${className}:checked`)).map(cb => cb.value);
+        }
+
+        function onMultiFilterChange() {
+            const selectedDates = getCheckedValues('multi-date-cb');
+            document.getElementById('lblMultiDate').innerText = selectedDates.length > 0 ? `${selectedDates.length} Dates` : 'Day Wise Date';
+
+            const selectedTypes = getCheckedValues('multi-type-cb');
+            document.getElementById('lblMultiType').innerText = selectedTypes.length > 0 ? `${selectedTypes.length} Types` : 'All Types';
+
+            const selectedStatuses = getCheckedValues('multi-status-cb');
+            document.getElementById('lblMultiStatus').innerText = selectedStatuses.length > 0 ? `${selectedStatuses.length} Statuses` : 'Active Statuses';
+
+            const selectedAssocs = getCheckedValues('multi-assoc-cb');
+            document.getElementById('lblMultiAssociate').innerText = selectedAssocs.length > 0 ? `${selectedAssocs.length} Associates` : 'Associate View';
+
+            applyFiltersAndRender();
+        }
+
+        function populateModule1Filters() {
+            const uniqueDates = [...new Set(currentDataset.map(i => formatDateOnly(i.inductedDate)))].filter(d => d && d !== 'N/A').sort();
+            const currDateSel = module1DateFilter.value;
+            module1DateFilter.innerHTML = `<option value="">All Inducted Dates</option>` + 
+                uniqueDates.map(d => `<option value="${d}">${d}</option>`).join('');
+            if (uniqueDates.includes(currDateSel)) module1DateFilter.value = currDateSel;
+
+            const uniqueAssocs = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
+            const currAssocSel = module1AssocFilter.value;
+            module1AssocFilter.innerHTML = `<option value="">All Associates</option>` + 
+                uniqueAssocs.map(a => `<option value="${a}">${a}</option>`).join('');
+            if (uniqueAssocs.includes(currAssocSel)) module1AssocFilter.value = currAssocSel;
+        }
+
+        function switchToModule2() {
+            tabModule2.classList.add('active-tab');
+            tabModule2.classList.remove('text-slate-400');
+            tabModule1.classList.remove('active-tab');
+            tabModule1.classList.add('text-slate-400');
+            tabModule3.classList.remove('active-tab');
+            tabModule3.classList.add('text-slate-400');
+            tabModule4.classList.remove('active-tab');
+            tabModule4.classList.add('text-slate-400');
+
+            module2View.classList.remove('hidden');
+            module1View.classList.add('hidden');
+            module3View.classList.add('hidden');
+            module4View.classList.add('hidden');
+        }
+
+        function switchToModule3() {
+            tabModule3.classList.add('active-tab');
+            tabModule3.classList.remove('text-slate-400');
+            tabModule1.classList.remove('active-tab');
+            tabModule1.classList.add('text-slate-400');
+            tabModule2.classList.remove('active-tab');
+            tabModule2.classList.add('text-slate-400');
+            tabModule4.classList.remove('active-tab');
+            tabModule4.classList.add('text-slate-400');
+
+            module3View.classList.remove('hidden');
+            module1View.classList.add('hidden');
+            module2View.classList.add('hidden');
+            module4View.classList.add('hidden');
+
+            renderTtTable();
+        }
+
+        function switchToModule4() {
+            tabModule4.classList.add('active-tab');
+            tabModule4.classList.remove('text-slate-400');
+            tabModule1.classList.remove('active-tab');
+            tabModule1.classList.add('text-slate-400');
+            tabModule2.classList.remove('active-tab');
+            tabModule2.classList.add('text-slate-400');
+            tabModule3.classList.remove('active-tab');
+            tabModule3.classList.add('text-slate-400');
+
+            module4View.classList.remove('hidden');
+            module1View.classList.add('hidden');
+            module2View.classList.add('hidden');
+            module3View.classList.add('hidden');
+
+            renderHfcrTable();
+            setTimeout(() => {
+                if (hfcrScanInput) hfcrScanInput.focus();
+            }, 100);
+        }
+
+        function resetAllModule2Filters() {
+            document.getElementById('activeQuickFilterBanner').classList.add('hidden');
+            searchInput.value = '';
+            document.getElementById('chkAgeing5Only').checked = false;
+            document.getElementById('chkCriticalOnly').checked = false;
+            document.querySelectorAll('.multi-date-cb, .multi-type-cb, .multi-status-cb, .multi-assoc-cb').forEach(cb => cb.checked = false);
+            document.getElementById('lblMultiDate').innerText = 'Day Wise Date';
+            document.getElementById('lblMultiType').innerText = 'All Types';
+            document.getElementById('lblMultiStatus').innerText = 'Active Statuses';
+            document.getElementById('lblMultiAssociate').innerText = 'Associate View';
+            applyFiltersAndRender();
+        }
+
+        function selectUploadOption(type) {
+            selectedUploadType = type;
+            const radioNew = document.getElementById('radioNewData');
+            const radioLatest = document.getElementById('radioLatestData');
+            const cardNew = document.getElementById('optNewDataCard');
+            const cardLatest = document.getElementById('optLatestDataCard');
+
+            if (type === 'NEW') {
+                radioNew.checked = true;
+                radioLatest.checked = false;
+                cardNew.className = "p-3 border-2 border-blue-500 bg-blue-950/30 rounded-xl cursor-pointer transition";
+                cardLatest.className = "p-3 border-2 border-slate-700 rounded-xl cursor-pointer transition hover:border-blue-400";
+                newDataDateContainer.classList.remove('hidden');
+            } else {
+                radioLatest.checked = true;
+                radioNew.checked = false;
+                cardLatest.className = "p-3 border-2 border-blue-500 bg-blue-950/30 rounded-xl cursor-pointer transition";
+                cardNew.className = "p-3 border-2 border-slate-700 rounded-xl cursor-pointer transition hover:border-blue-400";
+                newDataDateContainer.classList.add('hidden');
+            }
+        }
+
+        csvFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                pendingFile = e.target.files[0];
+                newInductedDateInput.value = '';
+                selectUploadOption('NEW');
+                uploadTypeModal.classList.remove('hidden');
+            }
+        });
+
+        cancelUploadModalBtn.addEventListener('click', () => {
+            pendingFile = null;
+            csvFileInput.value = '';
+            uploadTypeModal.classList.add('hidden');
+        });
+
+        confirmUploadModalBtn.addEventListener('click', () => {
+            if (!pendingFile) return;
+
+            let batchInductedDate = 'N/A';
+            if (selectedUploadType === 'NEW') {
+                const dateVal = newInductedDateInput.value;
+                if (dateVal) {
+                    batchInductedDate = cleanDateString(dateVal);
+                }
+            }
+
+            Papa.parse(pendingFile, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: false,
+                complete: async function(results) {
+                    const deduplicatedMap = new Map();
+                    savedHistory.forEach(item => {
+                        const cleanId = sanitizeTrackingId(item.trackingId);
+                        const cleanKey = cleanId.toUpperCase();
+                        if (cleanKey && cleanKey !== 'N/A') deduplicatedMap.set(cleanKey, item);
+                    });
+
+                    results.data.forEach(row => {
+                        const rawTrackingId = getField(row, ['trackingid', 'shipmentid', 'tracking_id', 'tracking']);
+                        const cleanTrackingId = sanitizeTrackingId(rawTrackingId);
+                        const cleanKey = cleanTrackingId.toUpperCase();
+                        if (cleanKey === 'N/A' || !cleanKey) return;
+
+                        const computedStatus = computeCurrentStatus(row);
+                        const rawLastUpdated = getField(row, ['lastupdatedtime', 'last_updated_time', 'date', 'lastupdated']);
+                        const driverId = extractDriverIdFromRow(row);
+
+                        if (computedStatus === 'Delivered') {
+                            cumulativeDeliveredCount++;
+                            deduplicatedMap.delete(cleanKey);
+                            return;
+                        }
+                        if (computedStatus === 'RTO Done') {
+                            cumulativeRtoDoneCount++;
+                            deduplicatedMap.delete(cleanKey);
+                            return;
+                        }
+
+                        let rowInductedDate = 'N/A';
+                        const existingRecord = deduplicatedMap.get(cleanKey);
+                        if (selectedUploadType === 'NEW' && batchInductedDate !== 'N/A') {
+                            rowInductedDate = batchInductedDate;
+                        } else if (existingRecord && existingRecord.inductedDate !== 'N/A') {
+                            rowInductedDate = cleanDateString(existingRecord.inductedDate);
+                        } else {
+                            let csvInducted = getField(row, ['inducteddate', 'inductdate', 'inducted_date']);
+                            rowInductedDate = csvInducted ? cleanDateString(csvInducted) : 'N/A';
+                        }
+
+                        const receivableVal = getField(row, ['receivableamount', 'receivable_amount', 'amount']);
+
+                        deduplicatedMap.set(cleanKey, {
+                            week: getWeekFromInductedDate(rowInductedDate),
+                            inductedDate: cleanDateString(rowInductedDate),
+                            trackingId: cleanTrackingId,
+                            driverId: driverId,
+                            associateName: getAssociateName(driverId),
+                            type: getType(receivableVal),
+                            status: computedStatus,
+                            lastUpdatedTime: cleanDateString(rawLastUpdated)
+                        });
+                    });
+
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
+                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
+
+                    savedHistory = Array.from(deduplicatedMap.values());
+                    currentDataset = [...savedHistory];
+                    localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+
+                    uploadTypeModal.classList.add('hidden');
+                    csvFileInput.value = '';
+                    renderDashboard();
+                    updateBadges();
+
+                    await pushCloudData();
+                }
+            });
+        });
+
+        openManageAssociatesModal.addEventListener('click', () => manageAssociatesModal.classList.remove('hidden'));
+        closeModalBtn.addEventListener('click', () => manageAssociatesModal.classList.add('hidden'));
+        closeModalBottomBtn.addEventListener('click', () => manageAssociatesModal.classList.add('hidden'));
+
+        saveUpdateAssocBtn.addEventListener('click', async () => {
+            const id = assocDriverId.value.trim();
+            const name = assocName.value.trim();
+            const fac = assocFacility.value.trim();
+            const type = assocType.value;
+
+            if (id && name) {
+                associateMap[id] = { name: name, facilityId: fac || 'N/A', type: type };
+                localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
+                assocDriverId.value = '';
+                assocName.value = '';
+                assocFacility.value = '';
+                renderAssociatesList();
+                refreshAssociateMappingsInDataset();
+                await pushCloudData();
+            }
+        });
+
+        function editAssociate(id) {
+            const item = associateMap[id];
+            if (item) {
+                assocDriverId.value = id;
+                assocName.value = item.name || '';
+                assocFacility.value = item.facilityId || '';
+                assocType.value = item.type || 'NDA-Bike';
+            }
+        }
+
+        async function deleteAssociate(id) {
+            delete associateMap[id];
+            localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
+            renderAssociatesList();
+            refreshAssociateMappingsInDataset();
+            await pushCloudData();
+        }
+
+        function renderAssociatesList() {
+            const keys = Object.keys(associateMap);
+            assocCountLabel.innerText = `${keys.length} Driver Mappings Saved`;
+
+            if (keys.length === 0) {
+                assocTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No driver mappings saved for this sheet tracker.</td></tr>`;
+                return;
+            }
+
+            assocTableBody.innerHTML = keys.map(id => {
+                const item = associateMap[id];
+                return `
+                    <tr class="hover:bg-slate-800/60">
+                        <td class="px-4 py-2.5 font-mono text-white font-medium">${id}</td>
+                        <td class="px-4 py-2.5 font-semibold text-slate-200">${item.name}</td>
+                        <td class="px-4 py-2.5 text-slate-400">${item.facilityId || 'N/A'}</td>
+                        <td class="px-4 py-2.5"><span class="font-bold text-blue-400 text-[11px]">${item.type || 'N/A'}</span></td>
+                        <td class="px-4 py-2.5 text-right font-medium space-x-2">
+                            <button onclick="editAssociate('${id}')" class="text-blue-400 hover:underline">Edit</button>
+                            <button onclick="deleteAssociate('${id}')" class="text-rose-400 hover:underline">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function refreshAssociateMappingsInDataset() {
+            currentDataset = currentDataset.map(item => ({
+                ...item,
+                associateName: getAssociateName(item.driverId)
+            }));
+            renderDashboard();
+        }
+
+        exportJsonBtn.addEventListener('click', () => {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(associateMap, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "standalone_associate_mappings.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+
+        importJsonInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const importedMap = JSON.parse(event.target.result);
+                    associateMap = { ...associateMap, ...importedMap };
+                    localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
+                    renderAssociatesList();
+                    refreshAssociateMappingsInDataset();
+                    await pushCloudData();
+                    alert('Associate mappings updated successfully!');
+                } catch (err) {
+                    alert('Invalid JSON file format!');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        tabModule1.addEventListener('click', () => {
+            tabModule1.classList.add('active-tab');
+            tabModule1.classList.remove('text-slate-400');
+            tabModule2.classList.remove('active-tab');
+            tabModule2.classList.add('text-slate-400');
+            tabModule3.classList.remove('active-tab');
+            tabModule3.classList.add('text-slate-400');
+            tabModule4.classList.remove('active-tab');
+            tabModule4.classList.add('text-slate-400');
+
+            module1View.classList.remove('hidden');
+            module2View.classList.add('hidden');
+            module3View.classList.add('hidden');
+            module4View.classList.add('hidden');
+        });
+
+        tabModule2.addEventListener('click', () => switchToModule2());
+        tabModule3.addEventListener('click', () => switchToModule3());
+        tabModule4.addEventListener('click', () => switchToModule4());
+
+        searchInput.addEventListener('input', () => applyFiltersAndRender());
+
+        function sortTable(columnKey) {
+            currentSort.asc = (currentSort.column === columnKey) ? !currentSort.asc : true;
+            currentSort.column = columnKey;
+            applyFiltersAndRender();
+        }
+
+        function sortM1Table(columnKey) {
+            currentM1Sort.asc = (currentM1Sort.column === columnKey) ? !currentM1Sort.asc : true;
+            currentM1Sort.column = columnKey;
+            renderDashboard();
+        }
+
+        function applyFiltersAndRender() {
+            let filtered = [...currentDataset];
+
+            const q = searchInput.value.toLowerCase();
+            const selectedDates = getCheckedValues('multi-date-cb');
+            const selectedTypes = getCheckedValues('multi-type-cb');
+            const selectedStatuses = getCheckedValues('multi-status-cb');
+            const selectedAssocs = getCheckedValues('multi-assoc-cb');
+            const onlyAgeing5 = document.getElementById('chkAgeing5Only').checked;
+            const onlyCritical10 = document.getElementById('chkCriticalOnly').checked;
+
+            if (q) {
+                filtered = filtered.filter(item => 
+                    item.trackingId.toLowerCase().includes(q) ||
+                    item.associateName.toLowerCase().includes(q) ||
+                    item.driverId.toLowerCase().includes(q)
+                );
+            }
+            if (selectedDates.length > 0) filtered = filtered.filter(i => selectedDates.includes(cleanDateString(i.inductedDate)));
+            if (selectedTypes.length > 0) filtered = filtered.filter(i => selectedTypes.includes(i.type));
+            if (selectedStatuses.length > 0) filtered = filtered.filter(i => selectedStatuses.includes(getEffectiveStatus(i)));
+            if (selectedAssocs.length > 0) filtered = filtered.filter(i => selectedAssocs.includes(i.associateName));
+            
+            if (onlyCritical10) {
+                filtered = filtered.filter(i => isCriticalAgeing10(getEffectiveStatus(i), i.inductedDate));
+            } else if (onlyAgeing5) {
+                filtered = filtered.filter(i => isAgeing5(getEffectiveStatus(i), i.inductedDate));
+            }
+
+            if (currentSort.column) {
+                filtered.sort((a, b) => {
+                    let valA, valB;
+                    if (currentSort.column === 'ageingDays') {
+                        valA = calculateAgeingDays(a.inductedDate);
+                        valB = calculateAgeingDays(b.inductedDate);
+                        return currentSort.asc ? valA - valB : valB - valA;
+                    } else if (currentSort.column === 'status') {
+                        valA = getEffectiveStatus(a);
+                        valB = getEffectiveStatus(b);
+                        let comp = valA.localeCompare(valB, undefined, { numeric: true });
+                        return currentSort.asc ? comp : -comp;
+                    } else {
+                        valA = a[currentSort.column] || '';
+                        valB = b[currentSort.column] || '';
+                        let comp = valA.localeCompare(valB, undefined, { numeric: true });
+                        return currentSort.asc ? comp : -comp;
+                    }
+                });
+            }
+
+            currentlyFilteredData = filtered;
+            document.getElementById('recordCountLabel').innerText = `Showing ${filtered.length} of ${currentDataset.length} active exception records`;
+            renderTrackingTable(filtered);
+        }
+
+        function renderDashboard() {
+            populateModule1Filters();
+            
+            const selectedDate = module1DateFilter.value;
+            const selectedAssoc = module1AssocFilter.value;
+            const selectedType = module1TypeFilter.value;
+
+            module1DateLabel.innerHTML = `Report filter: <b>${selectedDate || 'All Dates'}</b> | Associate: <b>${selectedAssoc || 'All'}</b> | Type: <b>${selectedType || 'All'}</b>`;
+
+            let m1Dataset = currentDataset;
+            if (selectedDate) m1Dataset = m1Dataset.filter(item => cleanDateString(item.inductedDate) === selectedDate);
+            if (selectedAssoc) m1Dataset = m1Dataset.filter(item => item.associateName === selectedAssoc);
+            if (selectedType) m1Dataset = m1Dataset.filter(item => item.type === selectedType);
+
+            let counts = {
+                'Delivery Failed': 0,
+                'Delivery Rejected': 0,
+                'Out On Road': 0,
+                'Hold For Redelivery': 0,
+                'Core - Dwell': 0,
+                'Ready For Fc Return / RTO Pending': 0,
+                'Hold For Customer Request': 0,
+                'Undeliverable': 0,
+                'Damaged': 0,
+                'At Wrong station': 0
+            };
+
+            let globalAgeing5Count = 0;
+            let globalCriticalAgeingCount = 0;
+            const associateStats = {};
+            const associateExceptionCounts = {};
+
+            m1Dataset.forEach(item => {
+                const effectiveSt = getEffectiveStatus(item);
+                if (counts.hasOwnProperty(effectiveSt)) counts[effectiveSt]++;
+
+                const ageing = calculateAgeingDays(item.inductedDate);
+                const hasAgeing5 = isAgeing5(effectiveSt, item.inductedDate);
+                const hasCritical10 = isCriticalAgeing10(effectiveSt, item.inductedDate);
+
+                if (hasAgeing5) globalAgeing5Count++;
+                if (hasCritical10) globalCriticalAgeingCount++;
+
+                const assoc = item.associateName || 'Unassigned';
+
+                if (!associateExceptionCounts[assoc]) associateExceptionCounts[assoc] = {};
+                if (!associateExceptionCounts[assoc][effectiveSt]) {
+                    associateExceptionCounts[assoc][effectiveSt] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
+                }
+                associateExceptionCounts[assoc][effectiveSt].count++;
+                associateExceptionCounts[assoc][effectiveSt].totalAgeing += ageing;
+                if (ageing > associateExceptionCounts[assoc][effectiveSt].maxAgeing) {
+                    associateExceptionCounts[assoc][effectiveSt].maxAgeing = ageing;
+                }
+                if (hasAgeing5) associateExceptionCounts[assoc][effectiveSt].ageing5Count++;
+                if (hasCritical10) associateExceptionCounts[assoc][effectiveSt].criticalAgeingCount++;
+
+                // Virtual bucket: DATA_EXCEPTION (All statuses except Damaged, Delivered, RTO Done)
+                const isDataExceptionItem = effectiveSt !== 'Damaged' && effectiveSt !== 'Delivered' && effectiveSt !== 'RTO Done';
+                if (!associateExceptionCounts[assoc]['DATA_EXCEPTION']) {
+                    associateExceptionCounts[assoc]['DATA_EXCEPTION'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
+                }
+                if (isDataExceptionItem) {
+                    associateExceptionCounts[assoc]['DATA_EXCEPTION'].count++;
+                    associateExceptionCounts[assoc]['DATA_EXCEPTION'].totalAgeing += ageing;
+                    if (ageing > associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing) {
+                        associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing = ageing;
+                    }
+                    if (hasAgeing5) associateExceptionCounts[assoc]['DATA_EXCEPTION'].ageing5Count++;
+                    if (hasCritical10) associateExceptionCounts[assoc]['DATA_EXCEPTION'].criticalAgeingCount++;
+                }
+
+                // Virtual bucket: AGEING_5
+                if (!associateExceptionCounts[assoc]['AGEING_5']) {
+                    associateExceptionCounts[assoc]['AGEING_5'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
+                }
+                if (hasAgeing5) {
+                    associateExceptionCounts[assoc]['AGEING_5'].count++;
+                    associateExceptionCounts[assoc]['AGEING_5'].ageing5Count++;
+                    associateExceptionCounts[assoc]['AGEING_5'].totalAgeing += ageing;
+                    if (ageing > associateExceptionCounts[assoc]['AGEING_5'].maxAgeing) {
+                        associateExceptionCounts[assoc]['AGEING_5'].maxAgeing = ageing;
+                    }
+                }
+
+                // Virtual bucket: CRITICAL_AGEING (>10D)
+                if (!associateExceptionCounts[assoc]['CRITICAL_AGEING']) {
+                    associateExceptionCounts[assoc]['CRITICAL_AGEING'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
+                }
+                if (hasCritical10) {
+                    associateExceptionCounts[assoc]['CRITICAL_AGEING'].count++;
+                    associateExceptionCounts[assoc]['CRITICAL_AGEING'].criticalAgeingCount++;
+                    associateExceptionCounts[assoc]['CRITICAL_AGEING'].totalAgeing += ageing;
+                    if (ageing > associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing) {
+                        associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing = ageing;
+                    }
+                }
+
+                const m1Cat = computeModule1StatusCategory(effectiveSt);
+                if (m1Cat === 'EXCLUDE') return;
+
+                let isFailed = (m1Cat === 'FAILED');
+                let isRejected = (m1Cat === 'REJECTED');
+                let isOutOnRoad = (m1Cat === 'OUT_ON_ROAD');
+
+                if (!associateStats[assoc]) {
+                    associateStats[assoc] = { failed: 0, rejected: 0, outOnRoad: 0, ageing5: 0, criticalAgeing10: 0 };
+                }
+                
+                if (isFailed) associateStats[assoc].failed++;
+                if (isRejected) associateStats[assoc].rejected++;
+                if (isOutOnRoad) associateStats[assoc].outOnRoad++;
+                if (hasAgeing5) associateStats[assoc].ageing5++;
+                if (hasCritical10) associateStats[assoc].criticalAgeing10++;
+            });
+
+            const totalCumulativeVolume = cumulativeDeliveredCount + cumulativeRtoDoneCount + m1Dataset.length;
+            document.getElementById('totalPackagesCount').innerText = totalCumulativeVolume;
+            document.getElementById('activeStoredCount').innerText = m1Dataset.length;
+            document.getElementById('ageing5WarningCount').innerText = globalAgeing5Count;
+            document.getElementById('criticalAgeingWarningCount').innerText = globalCriticalAgeingCount;
+
+            const grandAttemptVolume = cumulativeDeliveredCount + counts['Delivery Failed'] + counts['Delivery Rejected'] + counts['Out On Road'];
+            document.getElementById('successRate').innerText = grandAttemptVolume > 0 ? `${((cumulativeDeliveredCount / grandAttemptVolume) * 100).toFixed(1)}%` : '0%';
+            
+            document.getElementById('statDelivered').innerText = cumulativeDeliveredCount;
+            document.getElementById('statRtoDone').innerText = cumulativeRtoDoneCount;
+
+            let dataExceptionCount = m1Dataset.filter(item => {
+                const st = getEffectiveStatus(item);
+                return st !== 'Damaged' && st !== 'Delivered' && st !== 'RTO Done';
+            }).length;
+            document.getElementById('statDataException').innerText = dataExceptionCount;
+
+            document.getElementById('statFailed').innerText = counts['Delivery Failed'];
+            document.getElementById('statRejected').innerText = counts['Delivery Rejected'];
+            document.getElementById('statOutOnRoad').innerText = counts['Out On Road'];
+
+            document.getElementById('statHoldRedelivery').innerText = counts['Hold For Redelivery'];
+            document.getElementById('statCoreDwell').innerText = counts['Core - Dwell'];
+            document.getElementById('statRtoPending').innerText = counts['Ready For Fc Return / RTO Pending'];
+            document.getElementById('statHoldCustomerReq').innerText = counts['Hold For Customer Request'];
+
+            document.getElementById('statUndeliverable').innerText = counts['Undeliverable'];
+            document.getElementById('statDamaged').innerText = counts['Damaged'];
+            document.getElementById('statWrongStation').innerText = counts['At Wrong station'];
+
+            const assocTableBody = document.getElementById('associateSummaryTable');
+            const assocTableFooter = document.getElementById('associateSummaryFooter');
+
+            if (activeSelectedCardStatus) {
+                const isAgeing5View = (activeSelectedCardStatus === 'AGEING_5');
+                const isCrit10View = (activeSelectedCardStatus === 'CRITICAL_AGEING');
+                const isDataView = (activeSelectedCardStatus === 'DATA_EXCEPTION');
+                
+                let titleLabel = activeSelectedCardStatus;
+                if (isAgeing5View) titleLabel = 'Ageing (>5 Days)';
+                if (isCrit10View) titleLabel = 'Critical Ageing (>10 Days Warning)';
+                if (isDataView) titleLabel = 'DATA (Exc. Damaged/DLV/RTO)';
+
+                m1TableTitle.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-filter text-amber-400"></i>
+                        <span>Filtered Exception:</span>
+                        <span class="${isCrit10View ? 'text-rose-400' : (isDataView ? 'text-teal-400' : 'text-amber-300')} font-extrabold underline">${titleLabel}</span>
+                    </div>
+                `;
+                clearM1CardFilterBtn.classList.remove('hidden');
+
+                m1TableHeader.innerHTML = `
+                    <tr>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('name')">Associate Name <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('exceptionCount')">${titleLabel} Count <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('avgAgeing')">Avg Ageing <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('maxAgeing')">Max Ageing (Days) <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('ageing5Count')">&gt;5 Days <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('criticalAgeingCount')">&gt;10 Days <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('totalAssigned')">Active Exceptions <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 text-right">Action</th>
+                    </tr>
+                `;
+
+                let assocEntries = Object.keys(associateExceptionCounts).map(name => {
+                    const data = associateExceptionCounts[name][activeSelectedCardStatus] || { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
+                    let totalAssigned = 0;
+                    Object.keys(associateExceptionCounts[name]).forEach(k => {
+                        if (k !== 'AGEING_5' && k !== 'CRITICAL_AGEING' && k !== 'DATA_EXCEPTION') totalAssigned += associateExceptionCounts[name][k].count;
+                    });
+                    const avgAgeing = data.count > 0 ? (data.totalAgeing / data.count).toFixed(1) : 0;
+                    return {
+                        name: name,
+                        exceptionCount: data.count,
+                        totalAgeing: data.totalAgeing,
+                        avgAgeing: parseFloat(avgAgeing),
+                        maxAgeing: data.maxAgeing,
+                        ageing5Count: data.ageing5Count || 0,
+                        criticalAgeingCount: data.criticalAgeingCount || 0,
+                        totalAssigned: totalAssigned
+                    };
+                }).filter(a => a.exceptionCount > 0);
+
+                if (currentM1Sort.column) {
+                    assocEntries.sort((a, b) => {
+                        let valA = a[currentM1Sort.column];
+                        let valB = b[currentM1Sort.column];
+                        let comp = typeof valA === 'string' ? valA.localeCompare(valB, undefined, { numeric: true }) : parseFloat(valA) - parseFloat(valB);
+                        return currentM1Sort.asc ? comp : -comp;
+                    });
+                } else {
+                    assocEntries.sort((a, b) => b.exceptionCount - a.exceptionCount);
+                }
+
+                currentM1SummaryData = [...assocEntries];
+
+                if (assocEntries.length === 0) {
+                    assocTableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">No active associates found for "${titleLabel}".</td></tr>`;
+                    assocTableFooter.classList.add('hidden');
+                } else {
+                    let totalException = 0;
+                    let totalVolume = 0;
+                    let totalAgeing5 = 0;
+                    let totalCritical10 = 0;
+                    let totalAgeingSum = 0;
+                    let overallMaxAgeing = 0;
+
+                    assocTableBody.innerHTML = assocEntries.map(item => {
+                        totalException += item.exceptionCount;
+                        totalVolume += item.totalAssigned;
+                        totalAgeing5 += item.ageing5Count;
+                        totalCritical10 += item.criticalAgeingCount;
+                        totalAgeingSum += item.totalAgeing;
+                        if (item.maxAgeing > overallMaxAgeing) overallMaxAgeing = item.maxAgeing;
+
+                        const hasCrit = item.criticalAgeingCount > 0;
+                        const rowClass = hasCrit ? 'bg-rose-950/20 border-l-4 border-rose-500' : (item.ageing5Count > 0 ? 'bg-amber-950/20 border-l-4 border-amber-500' : 'hover:bg-slate-800/60');
+
+                        return `
+                            <tr class="${rowClass}">
+                                <td class="px-4 py-3 font-semibold text-slate-200 flex items-center gap-2">
+                                    ${item.name}
+                                    ${hasCrit ? '<span class="bg-rose-900/80 text-rose-300 border border-rose-600 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"><i class="fa-solid fa-triangle-exclamation"></i> Critical &gt;10D</span>' : ''}
+                                </td>
+                                <td class="px-4 py-3 ${isCrit10View ? 'text-rose-400' : (isDataView ? 'text-teal-400' : 'text-amber-400')} font-extrabold text-sm">${item.exceptionCount}</td>
+                                <td class="px-4 py-3 font-semibold text-slate-300">${item.avgAgeing} Days</td>
+                                <td class="px-4 py-3 font-bold ${item.maxAgeing > 10 ? 'text-rose-400' : (item.maxAgeing > 5 ? 'text-amber-400' : 'text-slate-300')}">
+                                    ${item.maxAgeing} Days
+                                </td>
+                                <td class="px-4 py-3 font-bold ${item.ageing5Count > 0 ? 'text-amber-400' : 'text-slate-500'}">
+                                    ${item.ageing5Count > 0 ? item.ageing5Count : '0'}
+                                </td>
+                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeingCount > 0 ? 'text-rose-400' : 'text-slate-500'}">
+                                    ${item.criticalAgeingCount > 0 ? `⚠️ ${item.criticalAgeingCount}` : '0'}
+                                </td>
+                                <td class="px-4 py-3 font-mono text-slate-300">${item.totalAssigned}</td>
+                                <td class="px-4 py-3 text-right">
+                                    <button onclick="viewAssociateTrackingIds('${item.name}', '${activeSelectedCardStatus}', '${isCrit10View ? '10' : (isAgeing5View ? '5' : '')}')" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[11px] font-semibold flex items-center gap-1.5 ml-auto shadow-sm">
+                                        <i class="fa-solid fa-boxes-stacked"></i> View IDs (${item.exceptionCount})
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    const overallAvgAgeing = totalException > 0 ? (totalAgeingSum / totalException).toFixed(1) : 0;
+                    assocTableFooter.classList.remove('hidden');
+                    assocTableFooter.innerHTML = `
+                        <tr class="bg-slate-800 border-t-2 border-slate-700 font-extrabold text-white">
+                            <td class="px-4 py-3">TOTAL ${titleLabel.toUpperCase()}</td>
+                            <td class="px-4 py-3 ${isCrit10View ? 'text-rose-400' : (isDataView ? 'text-teal-400' : 'text-amber-400')} text-sm">${totalException}</td>
+                            <td class="px-4 py-3 text-slate-300">${overallAvgAgeing} Days</td>
+                            <td class="px-4 py-3 ${overallMaxAgeing > 10 ? 'text-rose-400' : 'text-amber-400'}">${overallMaxAgeing} Days</td>
+                            <td class="px-4 py-3 text-amber-400">${totalAgeing5}</td>
+                            <td class="px-4 py-3 text-rose-400">${totalCritical10}</td>
+                            <td class="px-4 py-3 font-mono">${totalVolume}</td>
+                            <td class="px-4 py-3 text-right">
+                                <button onclick="viewAssociateTrackingIds('', '${activeSelectedCardStatus}', '${isCrit10View ? '10' : (isAgeing5View ? '5' : '')}')" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-[11px] font-semibold">
+                                    View All IDs
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
+
+            } else {
+                m1TableTitle.innerHTML = `<i class="fa-solid fa-users text-blue-400"></i> Active Exception Performance Breakdown`;
+                clearM1CardFilterBtn.classList.add('hidden');
+
+                m1TableHeader.innerHTML = `
+                    <tr>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('name')">Associate Name <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('failed')">Delivery Failed <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('rejected')">Delivery Rejected <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('outOnRoad')">Out On Road <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('ageing5')">Ageing &gt;5D <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('criticalAgeing10')">Critical &gt;10D <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('total')">Active Exceptions <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 text-right">Tracking IDs</th>
+                    </tr>
+                `;
+
+                let assocEntries = Object.entries(associateStats).map(([name, stats]) => {
+                    const rowActiveTotal = stats.failed + stats.rejected + stats.outOnRoad;
+                    return {
+                        name: name,
+                        failed: stats.failed,
+                        rejected: stats.rejected,
+                        outOnRoad: stats.outOnRoad,
+                        ageing5: stats.ageing5,
+                        criticalAgeing10: stats.criticalAgeing10,
+                        total: rowActiveTotal
+                    };
+                });
+
+                if (currentM1Sort.column) {
+                    assocEntries.sort((a, b) => {
+                        let valA = a[currentM1Sort.column];
+                        let valB = b[currentM1Sort.column];
+                        let comp = typeof valA === 'string' ? valA.localeCompare(valB, undefined, { numeric: true }) : parseFloat(valA) - parseFloat(valB);
+                        return currentM1Sort.asc ? comp : -comp;
+                    });
+                }
+
+                currentM1SummaryData = [...assocEntries];
+
+                if (assocEntries.length === 0) {
+                    assocTableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">No active exceptions found.</td></tr>`;
+                    assocTableFooter.classList.add('hidden');
+                } else {
+                    let grandFailed = 0, grandRejected = 0, grandOutOnRoad = 0, grandActiveVol = 0, grandAgeing5 = 0, grandCritical10 = 0;
+
+                    assocTableBody.innerHTML = assocEntries.map(item => {
+                        grandFailed += item.failed;
+                        grandRejected += item.rejected;
+                        grandOutOnRoad += item.outOnRoad;
+                        grandActiveVol += item.total;
+                        grandAgeing5 += item.ageing5;
+                        grandCritical10 += item.criticalAgeing10;
+
+                        return `
+                            <tr class="hover:bg-slate-800/60">
+                                <td class="px-4 py-3 font-semibold text-slate-200">${item.name}</td>
+                                <td class="px-4 py-3 text-rose-400 font-bold">${item.failed}</td>
+                                <td class="px-4 py-3 text-amber-400 font-bold">${item.rejected}</td>
+                                <td class="px-4 py-3 text-indigo-400 font-bold">${item.outOnRoad}</td>
+                                <td class="px-4 py-3 font-bold ${item.ageing5 > 0 ? 'text-amber-400' : 'text-slate-500'}">
+                                    ${item.ageing5 > 0 ? item.ageing5 : '0'}
+                                </td>
+                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeing10 > 0 ? 'text-rose-400' : 'text-slate-500'}">
+                                    ${item.criticalAgeing10 > 0 ? `⚠️ ${item.criticalAgeing10}` : '0'}
+                                </td>
+                                <td class="px-4 py-3 font-mono font-bold text-white">${item.total}</td>
+                                <td class="px-4 py-3 text-right">
+                                    <button onclick="viewAssociateTrackingIds('${item.name}')" class="bg-slate-700 hover:bg-slate-600 text-blue-400 px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 ml-auto">
+                                        <i class="fa-solid fa-boxes-stacked"></i> View IDs
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    assocTableFooter.classList.remove('hidden');
+                    assocTableFooter.innerHTML = `
+                        <tr class="bg-slate-800 border-t-2 border-slate-700 font-extrabold text-white">
+                            <td class="px-4 py-3">TOTAL EXCEPTIONS</td>
+                            <td class="px-4 py-3 text-rose-400">${grandFailed}</td>
+                            <td class="px-4 py-3 text-amber-400">${grandRejected}</td>
+                            <td class="px-4 py-3 text-indigo-400">${grandOutOnRoad}</td>
+                            <td class="px-4 py-3 text-amber-400">${grandAgeing5}</td>
+                            <td class="px-4 py-3 text-rose-400 font-extrabold">${grandCritical10}</td>
+                            <td class="px-4 py-3 font-mono">${grandActiveVol}</td>
+                            <td class="px-4 py-3"></td>
+                        </tr>
+                    `;
+                }
+            }
+
+            populateMultiSelectDropdowns();
+            applyFiltersAndRender();
+        }
+
+        function copyWhatsAppTableImage() {
+            const tableContainer = document.getElementById('m1ReportCard');
+            if (!tableContainer || currentM1SummaryData.length === 0) return;
+
+            html2canvas(tableContainer, { scale: 4, backgroundColor: '#1e293b' }).then(canvas => {
+                canvas.toBlob(blob => {
+                    try {
+                        const item = new ClipboardItem({ 'image/png': blob });
+                        navigator.clipboard.write([item]);
+                    } catch (e) {
+                        const link = document.createElement('a');
+                        link.download = `Delivery_Report_4K_${module1DateFilter.value || 'Summary'}.png`;
+                        link.href = canvas.toDataURL();
+                        link.click();
+                    }
+                });
+            });
+        }
+
+        function renderTrackingTable(data) {
+            const trackingTable = document.getElementById('trackingDetailsTable');
+            if (data.length === 0) {
+                trackingTable.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">No active exception records found.</td></tr>`;
+                return;
+            }
+
+            trackingTable.innerHTML = data.map(item => {
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                const effectiveSt = getEffectiveStatus(item);
+                const ageing = calculateAgeingDays(item.inductedDate);
+                const hasAgeing5 = isAgeing5(effectiveSt, item.inductedDate);
+                const hasCritical10 = isCriticalAgeing10(effectiveSt, item.inductedDate);
+                const hasOverride = overrideMap[cleanTid] && overrideMap[cleanTid].overrideStatus;
+
+                let badgeClass = 'bg-slate-800 text-slate-300 border border-slate-700';
+                if (effectiveSt === 'Delivery Failed' || effectiveSt === 'Undeliverable') badgeClass = 'bg-rose-950 text-rose-300 border border-rose-800';
+                else if (effectiveSt === 'Hold For Redelivery') badgeClass = 'bg-amber-950 text-amber-300 border border-amber-800';
+                else if (effectiveSt === 'Hold For Customer Request') badgeClass = 'bg-cyan-950 text-cyan-300 border border-cyan-800';
+                else if (effectiveSt === 'Ready For Fc Return / RTO Pending') badgeClass = 'bg-purple-950 text-purple-300 border border-purple-800';
+                else if (effectiveSt === 'Core - Dwell') badgeClass = 'bg-blue-950 text-blue-300 border border-blue-800';
+                else if (effectiveSt === 'Damaged' || effectiveSt === 'At Wrong station') badgeClass = 'bg-orange-950 text-orange-300 border border-orange-800';
+                else if (effectiveSt === 'TT Raised') badgeClass = 'bg-amber-900 text-amber-200 border border-amber-500 font-bold';
+                else if (effectiveSt === 'Physically Not Available') badgeClass = 'bg-red-950 text-red-300 border border-red-600 font-bold';
+
+                let ageingDisplay = `<span class="text-slate-300">${ageing} D</span>`;
+                if (effectiveSt === 'Physically Not Available') {
+                    ageingDisplay = `<span class="text-slate-500">${ageing} D (Excluded)</span>`;
+                } else if (hasCritical10) {
+                    ageingDisplay = `<span class="bg-rose-950 text-rose-300 border border-rose-700 px-2 py-0.5 rounded text-[10px] font-extrabold flex items-center gap-1 w-max animate-pulse"><i class="fa-solid fa-triangle-exclamation"></i> ${ageing} D (&gt;10D)</span>`;
+                } else if (hasAgeing5) {
+                    ageingDisplay = `<span class="bg-amber-950 text-amber-300 border border-amber-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 w-max"><i class="fa-solid fa-clock"></i> ${ageing} D (&gt;5D)</span>`;
+                }
+
+                return `
+                    <tr class="border-b border-slate-800 hover:bg-slate-800/40 ${hasCritical10 ? 'bg-rose-950/25' : (hasAgeing5 ? 'bg-amber-950/15' : '')}">
+                        <td class="px-4 py-3 font-medium text-slate-300">${item.week}</td>
+                        <td class="px-4 py-3 text-slate-400">${formatDateOnly(item.inductedDate)}</td>
+                        <td class="px-4 py-3 font-bold">
+                            ${ageingDisplay}
+                        </td>
+                        <td class="px-4 py-3 font-mono text-white font-semibold">${item.trackingId}</td>
+                        <td class="px-4 py-3 text-slate-200 font-medium">${item.associateName}</td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${item.type === 'COD' ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-blue-950 text-blue-300 border border-blue-800'}">
+                                ${item.type}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${badgeClass}">
+                                ${effectiveSt}
+                            </span>
+                            ${hasOverride ? `<span class="block text-[9px] text-amber-400 mt-0.5"><i class="fa-solid fa-user-pen"></i> Overridden</span>` : ''}
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            ${hasOverride ? `
+                                <div class="flex items-center justify-center gap-1">
+                                    <button onclick="openManualOverrideModal('${cleanTid}')" class="bg-amber-950/70 hover:bg-amber-900 border border-amber-600/80 text-amber-300 px-2.5 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition">
+                                        <i class="fa-solid fa-pen-to-square text-[10px]"></i> Edit Override
+                                    </button>
+                                </div>
+                            ` : `
+                                <button onclick="openManualOverrideModal('${cleanTid}')" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 hover:text-white px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 mx-auto transition">
+                                    <i class="fa-solid fa-shield-halved text-amber-400 text-[10px]"></i> Set Override
+                                </button>
+                            `}
+                        </td>
+                        <td class="px-4 py-3 text-slate-400">${formatDateOnly(item.lastUpdatedTime)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderTtTable() {
+            const tableBody = document.getElementById('ttDetailsTable');
+            const search = (document.getElementById('ttSearchInput')?.value || '').toLowerCase();
+
+            const ttItems = currentDataset.filter(item => {
+                const eff = getEffectiveStatus(item);
+                return eff === 'TT Raised' || eff === 'Physically Not Available';
+            });
+
+            let filteredTt = ttItems;
+            if (search) {
+                filteredTt = ttItems.filter(i => {
+                    const cleanTid = sanitizeTrackingId(i.trackingId);
+                    const ov = overrideMap[cleanTid] || {};
+                    return cleanTid.toLowerCase().includes(search) || (ov.remark || '').toLowerCase().includes(search);
+                });
+            }
+
+            if (filteredTt.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">No shipments in TT Raised or Physically Not Available state.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = filteredTt.map(item => {
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                const ov = overrideMap[cleanTid] || { overrideStatus: getEffectiveStatus(item), ttStatus: 'Not-Resolved', remark: '' };
+                const ageing = calculateAgeingDays(item.inductedDate);
+                const ttStatus = ov.ttStatus || 'Not-Resolved';
+
+                let selectClass = 'bg-rose-950 text-rose-300 border-rose-600';
+                if (ttStatus === 'Resolved') selectClass = 'bg-emerald-950 text-emerald-300 border-emerald-600';
+                else if (ttStatus === 'Orphan Processed') selectClass = 'bg-amber-950 text-amber-300 border-amber-600';
+
+                return `
+                    <tr class="hover:bg-slate-800/60">
+                        <td class="px-4 py-3 font-mono font-bold text-white">${item.trackingId}</td>
+                        <td class="px-4 py-3 text-slate-300">${formatDateOnly(item.inductedDate)}</td>
+                        <td class="px-4 py-3 font-extrabold ${ageing > 10 ? 'text-rose-400' : (ageing > 5 ? 'text-amber-400' : 'text-slate-300')}">
+                            ${ageing} Days ${ageing > 10 ? '⚠️' : ''}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${ov.overrideStatus === 'TT Raised' ? 'bg-amber-900 text-amber-200 border border-amber-600' : 'bg-red-950 text-red-200 border border-red-700'}">
+                                ${ov.overrideStatus}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <select onchange="updateTtStatus('${cleanTid}', this.value)" class="border rounded p-1 text-xs font-bold ${selectClass} focus:outline-none">
+                                <option value="Resolved" class="bg-slate-900 text-emerald-400" ${ttStatus === 'Resolved' ? 'selected' : ''}>🟢 Resolved</option>
+                                <option value="Not-Resolved" class="bg-slate-900 text-rose-400" ${ttStatus === 'Not-Resolved' ? 'selected' : ''}>🔴 Not-Resolved</option>
+                                <option value="Orphan Processed" class="bg-slate-900 text-amber-400" ${ttStatus === 'Orphan Processed' ? 'selected' : ''}>🟡 Orphan Processed</option>
+                            </select>
+                        </td>
+                        <td class="px-4 py-3">
+                            <input type="text" value="${ov.remark || ''}" onblur="updateTtRemark('${cleanTid}', this.value)" placeholder="Type remark here..." class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white focus:ring-1 focus:ring-amber-500 outline-none">
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <button onclick="resetSingleOverrideFromModule3('${cleanTid}')" title="Revert override to default" class="text-slate-500 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function setHfcrTableFilter(filterKey) {
+            hfcrTableCurrentFilter = filterKey;
+            
+            ['ALL', 'VERIFIED', 'MISSING', 'UNEXPECTED'].forEach(k => {
+                const btn = document.getElementById(`hfcrBtnFilter_${k}`);
+                if (k === filterKey) {
+                    btn.className = 'text-xs px-3 py-1.5 rounded-lg font-bold bg-cyan-600 text-white transition';
+                } else {
+                    btn.className = 'text-xs px-3 py-1.5 rounded-lg font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+                }
+            });
+
+            renderHfcrTable();
+        }
+
+        async function processManualHfcrScan() {
+            const raw = hfcrScanInput.value.trim();
+            if (!raw) return;
+
+            const cleanScanTid = sanitizeTrackingId(raw);
+            const key = cleanScanTid.toUpperCase();
+
+            const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === key);
+            const nowTime = new Date().toLocaleString();
+
+            hfcrScannedMap[cleanScanTid] = nowTime;
+            localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
+
+            hfcrScanInput.value = '';
+            hfcrScanFeedback.classList.remove('hidden', 'text-emerald-400', 'text-amber-400', 'text-rose-400');
+
+            if (match) {
+                const effectiveSt = getEffectiveStatus(match);
+                if (effectiveSt === 'Hold For Customer Request') {
+                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-emerald-400 flex items-center gap-1.5";
+                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-check"></i> Verified: TID ${cleanScanTid} matched system HFCR inventory!`;
+                } else {
+                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-amber-400 flex items-center gap-1.5";
+                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Warning: TID ${cleanScanTid} scanned, but its system status is "${effectiveSt}" (Not HFCR).`;
+                }
+            } else {
+                hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-rose-400 flex items-center gap-1.5";
+                hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> Foreign / Non-Exception Scan: TID ${cleanScanTid} is not present in active exceptions.`;
+            }
+
+            renderHfcrTable();
+            await pushCloudData();
+
+            setTimeout(() => {
+                if (hfcrScanInput) hfcrScanInput.focus();
+            }, 50);
+        }
+
+        async function removeHfcrScan(tid) {
+            const cleanTid = sanitizeTrackingId(tid);
+            delete hfcrScannedMap[cleanTid];
+            localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
+            renderHfcrTable();
+            await pushCloudData();
+        }
+
+        async function clearHfcrPhysicalScans() {
+            if (confirm("Clear all physical scan records for HFCR?")) {
+                hfcrScannedMap = {};
+                localStorage.removeItem(STORAGE_KEY_HFCR_SCANS);
+                renderHfcrTable();
+                await pushCloudData();
+            }
+        }
+
+        function renderHfcrTable() {
+            const tableBody = document.getElementById('hfcrAuditTableBody');
+            const search = (document.getElementById('hfcrTableSearchInput')?.value || '').toLowerCase();
+
+            const systemHfcrItems = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
+            const systemHfcrTidSet = new Set(systemHfcrItems.map(i => sanitizeTrackingId(i.trackingId).toUpperCase()));
+
+            const unexpectedScans = Object.keys(hfcrScannedMap).filter(scannedTid => {
+                return !systemHfcrTidSet.has(scannedTid.toUpperCase());
+            });
+
+            let verifiedCount = 0;
+            let missingCount = 0;
+
+            systemHfcrItems.forEach(item => {
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                if (hfcrScannedMap[cleanTid]) {
+                    verifiedCount++;
+                } else {
+                    missingCount++;
+                }
+            });
+
+            document.getElementById('hfcrTotalSystemCount').innerText = systemHfcrItems.length;
+            document.getElementById('hfcrScannedMatchedCount').innerText = verifiedCount;
+            document.getElementById('hfcrMissingCount').innerText = missingCount;
+            document.getElementById('hfcrUnexpectedCount').innerText = unexpectedScans.length;
+
+            let auditRows = [];
+
+            if (hfcrTableCurrentFilter === 'ALL') {
+                auditRows = systemHfcrItems.map(i => ({
+                    type: 'SYSTEM_HFCR',
+                    data: i,
+                    scanned: !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)],
+                    scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A'
+                }));
+            } else if (hfcrTableCurrentFilter === 'VERIFIED') {
+                auditRows = systemHfcrItems.filter(i => !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({
+                    type: 'SYSTEM_HFCR',
+                    data: i,
+                    scanned: true,
+                    scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A'
+                }));
+            } else if (hfcrTableCurrentFilter === 'MISSING') {
+                auditRows = systemHfcrItems.filter(i => !hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({
+                    type: 'SYSTEM_HFCR',
+                    data: i,
+                    scanned: false,
+                    scanTime: 'Not Scanned'
+                }));
+            } else if (hfcrTableCurrentFilter === 'UNEXPECTED') {
+                auditRows = unexpectedScans.map(tid => {
+                    const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === tid.toUpperCase());
+                    return {
+                        type: 'UNEXPECTED',
+                        data: match || { trackingId: tid, inductedDate: 'N/A', associateName: 'Foreign / Not in CSV', status: 'Unknown' },
+                        scanned: true,
+                        scanTime: hfcrScannedMap[tid] || 'N/A'
+                    };
+                });
+            }
+
+            if (search) {
+                auditRows = auditRows.filter(row => {
+                    const tid = sanitizeTrackingId(row.data.trackingId).toLowerCase();
+                    const assoc = (row.data.associateName || '').toLowerCase();
+                    return tid.includes(search) || assoc.includes(search);
+                });
+            }
+
+            if (auditRows.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">No records found matching current HFCR audit criteria.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = auditRows.map(row => {
+                const item = row.data;
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                const ageing = item.inductedDate !== 'N/A' ? calculateAgeingDays(item.inductedDate) : 0;
+                
+                let checkBadge = '';
+                if (row.type === 'UNEXPECTED') {
+                    checkBadge = `<span class="bg-amber-950 text-amber-300 border border-amber-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Unexpected Scan (${item.status})</span>`;
+                } else if (row.scanned) {
+                    checkBadge = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-circle-check mr-1"></i> Physically Verified</span>`;
+                } else {
+                    checkBadge = `<span class="bg-rose-950 text-rose-300 border border-rose-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-clock mr-1"></i> Missing Scan (In System Only)</span>`;
+                }
+
+                return `
+                    <tr class="hover:bg-slate-800/60 ${row.type === 'UNEXPECTED' ? 'bg-amber-950/10' : (!row.scanned ? 'bg-rose-950/10' : '')}">
+                        <td class="px-4 py-3 font-mono font-bold text-white">${item.trackingId}</td>
+                        <td class="px-4 py-3 text-slate-300">${formatDateOnly(item.inductedDate)}</td>
+                        <td class="px-4 py-3 font-extrabold ${ageing > 10 ? 'text-rose-400' : (ageing > 5 ? 'text-amber-400' : 'text-slate-300')}">
+                            ${item.inductedDate !== 'N/A' ? `${ageing} Days` : 'N/A'}
+                        </td>
+                        <td class="px-4 py-3 text-slate-300 font-medium">${item.associateName}</td>
+                        <td class="px-4 py-3">${checkBadge}</td>
+                        <td class="px-4 py-3 text-slate-400 font-mono text-[11px]">${row.scanTime}</td>
+                        <td class="px-4 py-3 text-right">
+                            ${row.scanned ? `
+                                <button onclick="removeHfcrScan('${cleanTid}')" title="Undo Physical Scan" class="text-slate-400 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                                    <i class="fa-solid fa-trash-can mr-1"></i> Undo
+                                </button>
+                            ` : `
+                                <button onclick="hfcrScanInput.value='${cleanTid}'; processManualHfcrScan();" class="text-cyan-400 hover:text-cyan-300 text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition font-semibold">
+                                    <i class="fa-solid fa-check mr-1"></i> Mark Scanned
+                                </button>
+                            `}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function exportHfcrAuditCsv() {
+            const systemHfcrItems = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
+            if (systemHfcrItems.length === 0 && Object.keys(hfcrScannedMap).length === 0) {
+                return alert('No HFCR data or physical scans available to export.');
+            }
+
+            const exportData = systemHfcrItems.map(item => {
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                const isScanned = !!hfcrScannedMap[cleanTid];
+                return {
+                    'TID': item.trackingId,
+                    'Inducted Date': formatDateOnly(item.inductedDate),
+                    'Ageing Days': calculateAgeingDays(item.inductedDate),
+                    'Associate Name': item.associateName,
+                    'System Status': getEffectiveStatus(item),
+                    'Cross-Check Status': isScanned ? 'Physically Verified' : 'Missing Physical Scan',
+                    'Scan Timestamp': hfcrScannedMap[cleanTid] || 'N/A'
+                };
+            });
+
+            const systemSet = new Set(systemHfcrItems.map(i => sanitizeTrackingId(i.trackingId).toUpperCase()));
+            Object.keys(hfcrScannedMap).forEach(tid => {
+                if (!systemSet.has(tid.toUpperCase())) {
+                    const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === tid.toUpperCase());
+                    exportData.push({
+                        'TID': tid,
+                        'Inducted Date': match ? formatDateOnly(match.inductedDate) : 'N/A',
+                        'Ageing Days': match ? calculateAgeingDays(match.inductedDate) : 'N/A',
+                        'Associate Name': match ? match.associateName : 'Foreign / Not in CSV',
+                        'System Status': match ? getEffectiveStatus(match) : 'Unknown',
+                        'Cross-Check Status': 'Unexpected Physical Scan (Not HFCR in System)',
+                        'Scan Timestamp': hfcrScannedMap[tid]
+                    });
+                }
+            });
+
+            const csv = Papa.unparse(exportData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute('download', `HFCR_CrossCheck_Audit_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function exportTtTableCsv() {
+            const ttItems = currentDataset.filter(item => {
+                const eff = getEffectiveStatus(item);
+                return eff === 'TT Raised' || eff === 'Physically Not Available';
+            });
+
+            if (ttItems.length === 0) return alert('No TT Raised data to export.');
+
+            const exportData = ttItems.map(item => {
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+                const ov = overrideMap[cleanTid] || {};
+                return {
+                    'TID': item.trackingId,
+                    'Induct Date': formatDateOnly(item.inductedDate),
+                    'Ageing Days': calculateAgeingDays(item.inductedDate),
+                    'Override Type': ov.overrideStatus || getEffectiveStatus(item),
+                    'TT Status': ov.ttStatus || 'Not-Resolved',
+                    'Remark': ov.remark || ''
+                };
+            });
+
+            const csv = Papa.unparse(exportData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute('download', `TT_Raised_Report_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        exportCsvBtn.addEventListener('click', () => {
+            if (currentlyFilteredData.length === 0) return alert('No filtered data available to export!');
+            
+            const exportData = currentlyFilteredData.map(item => ({
+                'Week': item.week,
+                'Inducted Date': formatDateOnly(item.inductedDate),
+                'Ageing Days': calculateAgeingDays(item.inductedDate),
+                'Tracking ID': item.trackingId,
+                'Associate Name': item.associateName,
+                'Type': item.type,
+                'Current Status': getEffectiveStatus(item),
+                'Last Updated Time': formatDateOnly(item.lastUpdatedTime)
+            }));
+
+            const csv = Papa.unparse(exportData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute('download', `Active_Exceptions_Export_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+    </script>
+</body>
+</html>
