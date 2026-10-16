@@ -3,15 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delivery tracking</title>
+    <title>Delivery Tracking & Audit Desk</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PapaParse for CSV processing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <!-- html2canvas for image generation -->
+    <!-- html2canvas for report export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Firebase SDKs (Compat v10) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .active-tab { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
@@ -28,30 +31,38 @@
             <div>
                 <div class="flex items-center gap-3">
                     <span class="text-3xl">🚚</span>
-                    <h1 class="text-2xl font-bold text-white tracking-tight">Delivery tracking</h1>
-                    <span id="syncBadge" class="bg-slate-700 text-slate-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-slate-600">Local Ready</span>
-                    <span class="bg-blue-900/60 text-blue-300 border border-blue-700/50 text-[11px] font-semibold px-2.5 py-0.5 rounded">Auto-Purge (Delivered & RTO Done)</span>
+                    <h1 class="text-2xl font-bold text-white tracking-tight">Delivery Tracking</h1>
+                    <span id="syncBadge" class="bg-slate-700 text-slate-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-slate-600">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i> Initializing DB...
+                    </span>
+                    <span class="bg-blue-900/60 text-blue-300 border border-blue-700/50 text-[11px] font-semibold px-2.5 py-0.5 rounded">
+                        Cloud Realtime Firestore
+                    </span>
                 </div>
                 <p class="text-sm text-slate-400 mt-1">Operational Logic Processor, Dual Ageing (>5D / >10D), Multi-Device Cloud Sync & Live Exception Desk</p>
             </div>
             
             <!-- Action Controls -->
-            <div class="flex flex-wrap items-center gap-3">
-                <button onclick="fetchCloudData()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium px-3.5 py-2 rounded-lg flex items-center gap-2 transition border border-slate-600">
-                    <i class="fa-solid fa-arrows-rotate"></i> Sync Cloud
+            <div class="flex flex-wrap items-center gap-2.5">
+                <button id="openManageAssociatesModal" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center gap-1.5 transition border border-slate-600">
+                    <i class="fa-solid fa-users-gear text-slate-300"></i> Associates
                 </button>
 
-                <button id="openManageAssociatesModal" class="bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition border border-slate-600">
-                    ⚙️ Manage Associates
+                <button onclick="openBackupModal()" class="bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 text-xs font-semibold px-3 py-2 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+                    <i class="fa-solid fa-database text-indigo-400"></i> DB Backup
                 </button>
 
-                <label class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer flex items-center gap-2 transition shadow-sm">
+                <label class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2 rounded-lg cursor-pointer flex items-center gap-1.5 transition shadow-sm">
                     <i class="fa-solid fa-file-csv"></i> Upload Dump CSV
                     <input type="file" id="csvFileInput" accept=".csv" class="hidden">
                 </label>
                 
-                <button onclick="clearCurrentSessionData()" class="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 text-xs font-semibold px-3 py-2 rounded-lg transition">
-                    <i class="fa-solid fa-trash-can mr-1"></i> Reset Data
+                <button onclick="clearCurrentSessionData()" class="bg-amber-950/60 hover:bg-amber-900 text-amber-300 border border-amber-800/60 text-xs font-semibold px-3 py-2 rounded-lg transition" title="Purge active exceptions only">
+                    <i class="fa-solid fa-broom mr-1"></i> Purge Exceptions
+                </button>
+
+                <button onclick="eraseEntireDashboardData()" class="bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-bold px-3 py-2 rounded-lg transition shadow-sm" title="Erase shipments, overrides, HFCR scans, and metrics">
+                    <i class="fa-solid fa-trash-can mr-1"></i> Erase Entire DB
                 </button>
             </div>
         </div>
@@ -77,16 +88,42 @@
 
     <!-- MODULE 1: Performance Dashboard -->
     <div id="module1View" class="space-y-6">
-        
-        <!-- Filters -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg">
-            <div class="flex flex-col">
-                <label for="module1DateFilter" class="text-[11px] font-bold text-slate-300 uppercase mb-1">
-                    <i class="fa-solid fa-calendar-day text-blue-400 mr-1"></i> Day Wise (Inducted Date):
+            <div class="flex flex-col relative" id="calendarDropdownContainer">
+                <label class="text-[11px] font-bold text-slate-300 uppercase mb-1">
+                    <i class="fa-solid fa-calendar-days text-blue-400 mr-1"></i> Day Wise (Inducted Date):
                 </label>
-                <select id="module1DateFilter" onchange="renderDashboard()" class="border border-slate-600 rounded-lg text-xs p-2 bg-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold text-slate-200">
-                    <option value="">All Inducted Dates</option>
-                </select>
+                <button type="button" id="calendarPickerBtn" onclick="toggleCalendarDropdown()" class="w-full border border-slate-600 rounded-lg text-xs p-2 bg-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold text-slate-200 flex items-center justify-between transition hover:border-slate-500">
+                    <span id="selectedDateDisplay" class="flex items-center gap-1.5 truncate">
+                        <i class="fa-regular fa-calendar text-blue-400"></i> All Inducted Dates
+                    </span>
+                    <i class="fa-solid fa-chevron-down text-[10px] text-slate-400"></i>
+                </button>
+                <input type="hidden" id="module1DateFilter" value="">
+
+                <div id="calendarPopover" class="hidden absolute top-full left-0 mt-2 z-50 w-80 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl p-3.5 backdrop-blur-md">
+                    <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                        <button type="button" onclick="navigateCalendarMonth(-1)" class="w-7 h-7 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition">
+                            <i class="fa-solid fa-chevron-left text-xs"></i>
+                        </button>
+                        <span id="calendarMonthYearLabel" class="text-xs font-bold text-white tracking-wide"></span>
+                        <button type="button" onclick="navigateCalendarMonth(1)" class="w-7 h-7 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition">
+                            <i class="fa-solid fa-chevron-right text-xs"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center justify-between px-1 py-1.5 mb-2 bg-slate-950/60 rounded-md text-[10px] text-slate-400 border border-slate-800/80 font-medium">
+                        <span class="flex items-center gap-1"><i class="fa-solid fa-check text-emerald-400 text-[10px]"></i> Uploaded</span>
+                        <span class="flex items-center gap-1"><span class="text-rose-400">⚠️</span> Not Uploaded</span>
+                        <button type="button" onclick="selectCalendarDate('')" class="text-blue-400 hover:text-blue-300 font-bold underline">Show All</button>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-500 mb-1">
+                        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                    </div>
+
+                    <div id="calendarDaysGrid" class="grid grid-cols-7 gap-1"></div>
+                </div>
             </div>
 
             <div class="flex flex-col">
@@ -110,18 +147,17 @@
             </div>
         </div>
 
-        <!-- Top Metrics Cards with Both >5 Days and >10 Days Ageing -->
+        <!-- Top Metrics Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl shadow-lg flex justify-between items-center">
                 <div>
                     <p class="text-xs font-bold text-slate-400 uppercase">Total Packages</p>
                     <p id="totalPackagesCount" class="text-3xl font-extrabold text-white mt-1">0</p>
-                    <p class="text-[10px] text-slate-400 mt-0.5">Active in DB: <span id="activeStoredCount" class="text-amber-400 font-bold">0</span></p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Active Exceptions in DB: <span id="activeStoredCount" class="text-amber-400 font-bold">0</span></p>
                 </div>
                 <div class="p-3 bg-blue-900/50 text-blue-400 rounded-full text-xl border border-blue-700/50"><i class="fa-solid fa-boxes-stacked"></i></div>
             </div>
             
-            <!-- Ageing > 5 Days Card -->
             <div id="card_Ageing5" onclick="filterM1TableByStatus('AGEING_5')" class="bg-slate-800/80 border border-slate-700/60 hover:border-amber-500 p-5 rounded-xl shadow-lg flex justify-between items-center cursor-pointer transition transform hover:-translate-y-0.5 group">
                 <div>
                     <div class="flex items-center gap-2">
@@ -133,7 +169,6 @@
                 <div class="p-3 bg-amber-950/60 text-amber-400 rounded-full text-xl border border-amber-800/60"><i class="fa-solid fa-clock-rotate-left"></i></div>
             </div>
 
-            <!-- Critical Ageing > 10 Days Card -->
             <div id="card_CriticalAgeing" onclick="filterM1TableByStatus('CRITICAL_AGEING')" class="bg-slate-800/80 border border-slate-700/60 hover:border-rose-500 p-5 rounded-xl shadow-lg flex justify-between items-center cursor-pointer transition transform hover:-translate-y-0.5 group">
                 <div>
                     <div class="flex items-center gap-2">
@@ -142,7 +177,7 @@
                     </div>
                     <p id="criticalAgeingWarningCount" class="text-3xl font-extrabold text-rose-500 mt-1">0</p>
                 </div>
-                <div class="p-3 bg-rose-950/60 text-rose-400 rounded-full text-xl border border-rose-800/60 group-hover:animate-bounce"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="p-3 bg-rose-950/60 text-rose-400 rounded-full text-xl border border-rose-800/60"><i class="fa-solid fa-triangle-exclamation"></i></div>
             </div>
 
             <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl shadow-lg flex justify-between items-center">
@@ -158,8 +193,8 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-emerald-500">
                 <div class="flex justify-between items-center">
-                    <p class="text-xs font-bold text-slate-400">DELIVERED (TOTAL COUNT)</p>
-                    <span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.2 rounded font-bold">Purged</span>
+                    <p class="text-xs font-bold text-slate-400">DELIVERED (TOTAL)</p>
+                    <span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.2 rounded font-bold">Archived</span>
                 </div>
                 <p id="statDelivered" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
             </div>
@@ -231,7 +266,6 @@
                 <p id="statUndeliverable" class="text-2xl font-bold text-rose-400 mt-1">0</p>
             </div>
 
-            <!-- NEW DATA EXCEPTION CARD -->
             <div id="card_DataException" onclick="filterM1TableByStatus('DATA_EXCEPTION')" class="bg-slate-800/80 border border-slate-700/60 hover:border-teal-500 p-4 rounded-xl shadow-lg border-l-4 border-teal-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
                 <div class="flex justify-between items-start">
                     <p class="text-xs font-bold text-slate-400 group-hover:text-teal-300">DATA (EXC. DAMAGED/DLV/RTO)</p>
@@ -242,8 +276,8 @@
 
             <div class="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl shadow-lg border-l-4 border-violet-500">
                 <div class="flex justify-between items-center">
-                    <p class="text-xs font-bold text-slate-400">RTO DONE (TOTAL COUNT)</p>
-                    <span class="text-[9px] bg-violet-950 text-violet-300 border border-violet-800 px-1.5 py-0.2 rounded font-bold">Purged</span>
+                    <p class="text-xs font-bold text-slate-400">RTO DONE (TOTAL)</p>
+                    <span class="text-[9px] bg-violet-950 text-violet-300 border border-violet-800 px-1.5 py-0.2 rounded font-bold">Archived</span>
                 </div>
                 <p id="statRtoDone" class="text-2xl font-bold text-violet-400 mt-1">0</p>
             </div>
@@ -255,14 +289,6 @@
                 </div>
                 <p id="statDamaged" class="text-2xl font-bold text-red-400 mt-1">0</p>
             </div>
-
-            <div id="card_WrongStation" onclick="filterM1TableByStatus('At Wrong station')" class="bg-slate-800/80 border border-slate-700/60 hover:border-orange-500 p-4 rounded-xl shadow-lg border-l-4 border-orange-500 cursor-pointer transition transform hover:-translate-y-0.5 group">
-                <div class="flex justify-between items-start">
-                    <p class="text-xs font-bold text-slate-400 group-hover:text-orange-300">AT WRONG STATION</p>
-                    <i class="fa-solid fa-users-viewfinder text-[11px] text-slate-500 group-hover:text-orange-400"></i>
-                </div>
-                <p id="statWrongStation" class="text-2xl font-bold text-orange-400 mt-1">0</p>
-            </div>
         </div>
 
         <!-- Associate Summary Table Card -->
@@ -272,9 +298,14 @@
                     <h3 id="m1TableTitle" class="text-sm font-bold text-white flex items-center gap-2">
                         <i class="fa-solid fa-users text-blue-400"></i> Active Exception Performance Breakdown
                     </h3>
-                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                    <div class="flex flex-wrap items-center gap-2 mt-1.5">
                         <p id="module1DateLabel" class="text-xs text-slate-400 font-medium">Showing report for: <b>All Dates</b></p>
-                        <button id="clearM1CardFilterBtn" onclick="clearM1CardFilter()" class="hidden text-xs bg-blue-900/60 text-blue-300 border border-blue-700/60 px-2.5 py-0.5 rounded hover:bg-blue-800 transition font-semibold">
+                        
+                        <button id="viewAllSelectedCardIdsBtn" onclick="viewAllTrackingIdsForActiveCard()" class="hidden text-xs bg-amber-600 hover:bg-amber-500 text-white font-bold px-3 py-1 rounded-md shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-list-check"></i> View All Tracking IDs (<span id="viewAllTotalCountSpan">0</span>)
+                        </button>
+
+                        <button id="clearM1CardFilterBtn" onclick="clearM1CardFilter()" class="hidden text-xs bg-blue-900/60 text-blue-300 border border-blue-700/60 px-2.5 py-1 rounded-md hover:bg-blue-800 transition font-semibold">
                             <i class="fa-solid fa-times mr-1"></i> Reset to Overall View
                         </button>
                     </div>
@@ -289,7 +320,7 @@
                 <table class="w-full text-xs text-left text-slate-300">
                     <thead id="m1TableHeader" class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0"></thead>
                     <tbody id="associateSummaryTable" class="divide-y divide-slate-700/60">
-                        <tr><td colspan="8" class="text-center py-6 text-slate-400">No active exception records found.</td></tr>
+                        <tr><td colspan="8" class="text-center py-6 text-slate-400">Loading data from Firestore...</td></tr>
                     </tbody>
                     <tfoot id="associateSummaryFooter" class="bg-slate-800 font-bold text-white border-t-2 border-slate-700 hidden"></tfoot>
                 </table>
@@ -300,7 +331,6 @@
     <!-- MODULE 2: Active Exception Tracking ID Details -->
     <div id="module2View" class="space-y-6 hidden">
         <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
-            
             <div id="activeQuickFilterBanner" class="hidden flex items-center justify-between bg-blue-950/40 border border-blue-800/60 rounded-lg p-2.5 mb-4 text-xs">
                 <span class="text-blue-300 flex items-center gap-2">
                     <i class="fa-solid fa-filter"></i>
@@ -406,9 +436,9 @@
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
                 <div>
                     <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                        <i class="fa-solid fa-ticket text-amber-400"></i> TT Raised & Physically Not Available Investigation Desk
+                        <i class="fa-solid fa-ticket text-amber-400"></i> TT Raised & Physically Not Available Desk
                     </h3>
-                    <p class="text-xs text-slate-400 mt-1">Active shipments manually overridden as <b>TT Raised</b> or <b>Physically Not Available</b></p>
+                    <p class="text-xs text-slate-400 mt-1">Shipments manually flagged for ticket tracking or missing packages</p>
                 </div>
                 <button onclick="exportTtTableCsv()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm">
                     <i class="fa-solid fa-file-export"></i> Export TT Report CSV
@@ -433,7 +463,7 @@
                         </tr>
                     </thead>
                     <tbody id="ttDetailsTable" class="divide-y divide-slate-700/60">
-                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No shipments in TT Raised or Physically Not Available state.</td></tr>
+                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No shipments in TT Raised state.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -443,18 +473,17 @@
     <!-- MODULE 4: HFCR Tracking & Audit Desk -->
     <div id="module4View" class="space-y-6 hidden">
         <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-lg p-6">
-            
             <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
                 <div>
                     <h3 class="text-base font-bold text-white flex items-center gap-2">
-                        <i class="fa-solid fa-barcode text-cyan-400"></i> Hold For Customer Request (HFCR) Physical Audit & Cross-Check Desk
+                        <i class="fa-solid fa-barcode text-cyan-400"></i> Hold For Customer Request (HFCR) Physical Audit
                     </h3>
                     <p class="text-xs text-slate-400 mt-1">Cross-check system HFCR active shipments against physically scanned inventory.</p>
                 </div>
 
                 <div class="flex flex-wrap gap-2">
                     <button onclick="clearHfcrPhysicalScans()" class="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs px-3 py-1.5 rounded-lg transition font-semibold">
-                        <i class="fa-solid fa-trash-can mr-1"></i> Clear Scanned Cache
+                        <i class="fa-solid fa-trash-can mr-1"></i> Clear Scanned Audit Cache
                     </button>
                     <button onclick="exportHfcrAuditCsv()" class="bg-cyan-700 hover:bg-cyan-600 text-white text-xs px-3.5 py-1.5 rounded-lg transition font-semibold flex items-center gap-1.5">
                         <i class="fa-solid fa-file-export"></i> Export Audit Report
@@ -462,7 +491,7 @@
                 </div>
             </div>
 
-            <!-- Barcode Scanner / Manual Input Dock -->
+            <!-- Barcode Scanner Input Dock -->
             <div class="bg-slate-900 border-2 border-cyan-500/60 rounded-xl p-4 mb-6 shadow-inner">
                 <div class="flex flex-col md:flex-row items-center gap-3">
                     <div class="relative flex-1 w-full">
@@ -483,11 +512,11 @@
                     <p id="hfcrTotalSystemCount" class="text-2xl font-extrabold text-white mt-1">0</p>
                 </div>
                 <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-emerald-500">
-                    <p class="text-[11px] font-bold text-slate-400 uppercase">Verified / Physically Scanned</p>
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Verified / Scanned</p>
                     <p id="hfcrScannedMatchedCount" class="text-2xl font-extrabold text-emerald-400 mt-1">0</p>
                 </div>
                 <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-rose-500">
-                    <p class="text-[11px] font-bold text-slate-400 uppercase">Missing / Pending Physical Check</p>
+                    <p class="text-[11px] font-bold text-slate-400 uppercase">Missing Physical Scan</p>
                     <p id="hfcrMissingCount" class="text-2xl font-extrabold text-rose-400 mt-1">0</p>
                 </div>
                 <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-xl border-l-4 border-amber-500">
@@ -507,7 +536,6 @@
                 <input type="text" id="hfcrTableSearchInput" oninput="renderHfcrTable()" placeholder="Search TID, Associate..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-cyan-500">
             </div>
 
-            <!-- Verification Table -->
             <div class="overflow-x-auto border border-slate-700 rounded-lg bg-slate-900/60 max-h-[500px]">
                 <table class="w-full text-xs text-left text-slate-300">
                     <thead class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0">
@@ -522,14 +550,117 @@
                         </tr>
                     </thead>
                     <tbody id="hfcrAuditTableBody" class="divide-y divide-slate-700/60">
-                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No HFCR data loaded from the dump CSV.</td></tr>
+                        <tr><td colspan="7" class="text-center py-6 text-slate-400">No HFCR data loaded.</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- MODAL: MANUAL STATUS OVERRIDE AUDIT DIALOG -->
+    <!-- MODAL: FIREBASE BACKUP & TABULAR INSPECTOR -->
+    <div id="backupModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border-2 border-indigo-500/70 rounded-2xl max-w-6xl w-full p-6 shadow-2xl relative max-h-[92vh] flex flex-col">
+            <div class="flex justify-between items-start pb-3 border-b border-slate-700">
+                <div class="flex items-center gap-2 text-indigo-400">
+                    <i class="fa-solid fa-database text-2xl"></i>
+                    <div>
+                        <h3 class="text-base font-extrabold text-white">Firestore Live Database Backup & Tabular Inspector</h3>
+                        <p class="text-xs text-slate-400">Inspect real-time tracking IDs, inducted dates, driver IDs, and download backups[cite: 1].</p>
+                    </div>
+                </div>
+                <button onclick="closeBackupModal()" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 my-4">
+                <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-400">Active Shipments</p>
+                    <p id="bkShipmentsCount" class="text-xl font-bold text-emerald-400">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-400">Overrides & TT</p>
+                    <p id="bkOverridesCount" class="text-xl font-bold text-amber-400">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-400">HFCR Scans</p>
+                    <p id="bkScansCount" class="text-xl font-bold text-cyan-400">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-400">Driver Associates</p>
+                    <p id="bkAssociatesCount" class="text-xl font-bold text-purple-400">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-400">Induction Files</p>
+                    <p id="bkFilesCount" class="text-xl font-bold text-blue-400">0</p>
+                </div>
+            </div>
+
+            <!-- Collections Selector Tab -->
+            <div class="flex border-b border-slate-700 gap-2 mb-3">
+                <button onclick="switchBackupPreview('shipments_table')" id="btnBk_shipments_table" class="text-xs px-3 py-1.5 rounded-t-lg bg-indigo-600 text-white font-bold transition">
+                    <i class="fa-solid fa-table-list mr-1"></i> Shipments Tabular View
+                </button>
+                <button onclick="switchBackupPreview('shipments')" id="btnBk_shipments" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">Shipments (JSON)</button>
+                <button onclick="switchBackupPreview('file_backups')" id="btnBk_file_backups" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">Induction Files Saved</button>
+                <button onclick="switchBackupPreview('overrides')" id="btnBk_overrides" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">Overrides</button>
+                <button onclick="switchBackupPreview('hfcr_scans')" id="btnBk_hfcr_scans" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">HFCR Scans</button>
+                <button onclick="switchBackupPreview('associates')" id="btnBk_associates" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">Associates</button>
+                <button onclick="switchBackupPreview('metrics')" id="btnBk_metrics" class="text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition">Metrics</button>
+            </div>
+
+            <!-- Tabular View Section -->
+            <div id="bkTableViewContainer" class="flex-1 overflow-hidden flex flex-col bg-slate-950 border border-slate-700 rounded-xl p-3">
+                <div class="flex flex-col sm:flex-row justify-between items-center gap-2 mb-3">
+                    <div class="relative w-full sm:w-80">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="text" id="bkTableSearch" oninput="renderBackupShipmentsTable()" placeholder="Search TID, Driver ID, Associate, Date..." class="w-full pl-9 pr-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    </div>
+                    <span id="bkTableSummary" class="text-[11px] font-semibold text-indigo-300">Showing 0 shipments</span>
+                </div>
+                <div class="flex-1 overflow-auto border border-slate-800 rounded-lg">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] text-slate-200 uppercase bg-slate-800 sticky top-0">
+                            <tr>
+                                <th class="px-3 py-2">Tracking ID</th>
+                                <th class="px-3 py-2">Inducted Date</th>
+                                <th class="px-3 py-2">Ageing</th>
+                                <th class="px-3 py-2">Driver ID</th>
+                                <th class="px-3 py-2">Associate Name</th>
+                                <th class="px-3 py-2">Status</th>
+                                <th class="px-3 py-2">Type</th>
+                                <th class="px-3 py-2">Last Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bkShipmentsTableBody" class="divide-y divide-slate-800 font-mono text-[11px]"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- JSON Preview Box -->
+            <div id="bkJsonContainer" class="hidden flex-1 bg-slate-950 border border-slate-700 rounded-xl p-3 overflow-hidden flex flex-col">
+                <div class="flex justify-between items-center mb-2">
+                    <span id="bkCurrentPreviewTitle" class="text-[11px] font-mono text-indigo-300 font-semibold">Preview</span>
+                    <button onclick="copyCurrentPreviewJson()" class="text-[11px] text-slate-400 hover:text-white flex items-center gap-1">
+                        <i class="fa-regular fa-copy"></i> Copy Preview
+                    </button>
+                </div>
+                <pre id="bkJsonViewer" class="flex-1 overflow-auto text-[11px] font-mono text-emerald-300 bg-slate-900/70 p-3 rounded-lg border border-slate-800 leading-relaxed"></pre>
+            </div>
+
+            <!-- Actions Footer -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-700 mt-4">
+                <span class="text-xs text-slate-400">Timestamp: <span id="bkTimestampLabel" class="text-slate-300 font-mono"></span></span>
+                <div class="flex gap-2">
+                    <button onclick="downloadCompleteFirebaseBackup()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> Download Complete Backup (.json)
+                    </button>
+                    <button onclick="closeBackupModal()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-4 py-2 rounded-lg">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MANUAL STATUS OVERRIDE DIALOG -->
     <div id="manualOverrideModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-50 p-4">
         <div class="bg-slate-800 border-2 border-amber-500/70 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
             <div class="flex items-center justify-between pb-3 border-b border-slate-700">
@@ -592,7 +723,6 @@
                 </button>
             </div>
 
-            <!-- Confirmation Prompt Box -->
             <div id="modalConfirmPromptBox" class="hidden bg-amber-950/40 border border-amber-600/70 p-3 rounded-xl mb-4 text-xs">
                 <p class="font-bold text-amber-300 flex items-center gap-1.5 mb-1">
                     <i class="fa-solid fa-triangle-exclamation"></i>
@@ -600,8 +730,7 @@
                 </p>
                 <p class="text-slate-300 text-[11px] leading-relaxed">
                     Override TID <span id="confirmTidSpan" class="font-mono font-bold text-white"></span> to <span id="confirmTargetStatusSpan" class="font-bold text-amber-300 underline"></span>?
-                    <span id="evictionHint" class="hidden block text-rose-400 mt-1 font-semibold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Setting to Delivered or RTO Done will permanently purge this Tracking ID from active exception tables while retaining the count in summary metrics.</span>
-                    <span id="ttModuleHint" class="hidden block text-emerald-400 mt-1 font-semibold"><i class="fa-solid fa-circle-info mr-1"></i>This shipment will register in the TT Raised Module.</span>
+                    <span id="evictionHint" class="hidden block text-rose-400 mt-1 font-semibold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Setting to Delivered or RTO Done removes this ID from active exception queues while updating cumulative counters.</span>
                 </p>
             </div>
 
@@ -614,7 +743,7 @@
         </div>
     </div>
 
-    <!-- MODAL 1: Upload Modal -->
+    <!-- MODAL: Upload Modal -->
     <div id="uploadTypeModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50">
         <div class="bg-slate-800 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
             <div class="flex items-center gap-3 mb-4">
@@ -630,7 +759,7 @@
                         <input type="radio" id="radioNewData" name="uploadType" value="NEW" checked class="text-blue-600"> 
                         🆕 Fresh Shift Induction
                     </span>
-                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Upload fresh induction dataset and specify a new Inducted Date.</p>
+                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Upload fresh induction dataset, specify inducted date, and archive file to Firebase[cite: 1].</p>
                     
                     <div id="newDataDateContainer" class="mt-3 pl-5">
                         <label class="text-[10px] font-bold text-slate-300 block mb-1">Select Inducted Date:</label>
@@ -643,20 +772,20 @@
                         <input type="radio" id="radioLatestData" name="uploadType" value="LATEST" class="text-blue-600"> 
                         ⚡ In-Day Status Update
                     </span>
-                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Update status for existing batches without overwriting original inducted dates.</p>
+                    <p class="text-[11px] text-slate-400 mt-1 pl-5">Strictly updates status & last updated time. Preserves all existing inducted dates[cite: 1].</p>
                 </div>
             </div>
             
             <div class="flex justify-end gap-2">
                 <button id="cancelUploadModalBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-4 py-2 rounded-lg">Cancel</button>
                 <button id="confirmUploadModalBtn" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-5 py-2 rounded-lg font-semibold flex items-center gap-2 shadow-sm">
-                    <i class="fa-solid fa-check"></i> Process & Load
+                    <i class="fa-solid fa-check"></i> Process & Commit to Firestore
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- MODAL 2: Associate Master Management -->
+    <!-- MODAL: Associate Master Management -->
     <div id="manageAssociatesModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
         <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-4xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
             <div class="flex justify-between items-start mb-1">
@@ -664,7 +793,7 @@
                     <h3 class="text-lg font-bold text-white flex items-center gap-2">
                         <span>⚙️</span> Associate Master Database
                     </h3>
-                    <p class="text-xs text-slate-400">Map Driver IDs to Associate Names for this session.</p>
+                    <p class="text-xs text-slate-400">Driver ID to Associate mappings are persisted across all station terminals.</p>
                 </div>
                 <button id="closeModalBtn" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
             </div>
@@ -681,7 +810,7 @@
             </div>
 
             <div class="flex justify-between items-center mb-4">
-                <p class="text-xs text-slate-400 italic">Mappings will be saved strictly to this separate tracker.</p>
+                <p class="text-xs text-slate-400 italic">Syncs directly to Cloud Firestore.</p>
                 <button id="saveUpdateAssocBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-5 py-2.5 rounded-lg flex items-center gap-2 shadow-sm transition">
                     + Save Mapping
                 </button>
@@ -690,9 +819,11 @@
             <div class="flex justify-between items-center mb-3">
                 <span id="assocCountLabel" class="text-xs font-semibold text-slate-300">0 Driver Mappings Saved</span>
                 <div class="flex gap-2">
-                    <button id="exportJsonBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition">Export JSON</button>
-                    <label class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition cursor-pointer">
-                        Import JSON
+                    <button id="exportJsonBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-download"></i> Export JSON
+                    </button>
+                    <label class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-600 transition cursor-pointer flex items-center gap-1.5">
+                        <i class="fa-solid fa-upload"></i> Import JSON
                         <input type="file" id="importJsonInput" accept=".json" class="hidden">
                     </label>
                 </div>
@@ -721,24 +852,42 @@
 
     <!-- Application Script Engine -->
     <script>
-        const G_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzmVZrPIFdDMoDzMCVBjcKSkdGv3DprN3uygwJCR886sIg-mlmyV27nGWNLNlLzidGjEg/exec";
+        // -------------------------------------------------------------
+        // 1. FIREBASE CONFIGURATION
+        // -------------------------------------------------------------
+        const firebaseConfig = {
+            apiKey: "AIzaSyDj9XcfrC3TMgbB0gLAYG7CjY4VMzbs5Mc",
+            authDomain: "delivery-tracker-453c3.firebaseapp.com",
+            projectId: "delivery-tracker-453c3",
+            storageBucket: "delivery-tracker-453c3.firebasestorage.app",
+            messagingSenderId: "984218209707",
+            appId: "1:984218209707:web:dbaf41239dc56adce156ee",
+            measurementId: "G-GCXYQG5J90"
+        };
 
-        const STORAGE_KEY_DATA = 'delivery_tracking_standalone_data'; 
-        const STORAGE_KEY_ASSOC = 'delivery_tracking_standalone_assoc';
-        const STORAGE_KEY_OVERRIDES = 'delivery_tracking_overrides'; 
-        const STORAGE_KEY_HFCR_SCANS = 'delivery_tracking_hfcr_scans';
-        const STORAGE_KEY_CUMULATIVE_DELIVERED = 'delivery_tracking_cum_delivered';
-        const STORAGE_KEY_CUMULATIVE_RTODONE = 'delivery_tracking_cum_rtodone';
+        let db = null;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            db.enablePersistence().catch(err => {
+                if (err.code == 'failed-precondition') {
+                    console.warn("Multiple tabs open, offline persistence disabled on secondary tabs");
+                }
+            });
+        } catch (e) {
+            console.error("Firebase initialization failed:", e);
+        }
 
+        // Global in-memory states
         let currentDataset = []; 
         let currentlyFilteredData = [];
-        let savedHistory = JSON.parse(localStorage.getItem(STORAGE_KEY_DATA) || '[]');
-        let associateMap = JSON.parse(localStorage.getItem(STORAGE_KEY_ASSOC) || '{}');
-        let overrideMap = JSON.parse(localStorage.getItem(STORAGE_KEY_OVERRIDES) || '{}'); 
-        let hfcrScannedMap = JSON.parse(localStorage.getItem(STORAGE_KEY_HFCR_SCANS) || '{}');
+        let associateMap = {};
+        let overrideMap = {}; 
+        let hfcrScannedMap = {};
+        let fileBackupsList = [];
 
-        let cumulativeDeliveredCount = parseInt(localStorage.getItem(STORAGE_KEY_CUMULATIVE_DELIVERED) || '0', 10);
-        let cumulativeRtoDoneCount = parseInt(localStorage.getItem(STORAGE_KEY_CUMULATIVE_RTODONE) || '0', 10);
+        let cumulativeDeliveredCount = 0;
+        let cumulativeRtoDoneCount = 0;
 
         let pendingFile = null;
         let selectedUploadType = 'NEW';
@@ -751,7 +900,10 @@
         let activeOverrideTid = null;
         let selectedOverrideAction = null;
 
-        // UI elements
+        let calendarCurrentDate = new Date();
+        let activeBackupCollection = 'shipments_table';
+
+        // UI Element References
         const syncBadge = document.getElementById('syncBadge');
         const csvFileInput = document.getElementById('csvFileInput');
         const tabModule1 = document.getElementById('tabModule1');
@@ -772,6 +924,8 @@
         const module1TypeFilter = document.getElementById('module1TypeFilter');
         const module1DateLabel = document.getElementById('module1DateLabel');
         const clearM1CardFilterBtn = document.getElementById('clearM1CardFilterBtn');
+        const viewAllSelectedCardIdsBtn = document.getElementById('viewAllSelectedCardIdsBtn');
+        const viewAllTotalCountSpan = document.getElementById('viewAllTotalCountSpan');
         const m1TableTitle = document.getElementById('m1TableTitle');
         const m1TableHeader = document.getElementById('m1TableHeader');
         
@@ -793,6 +947,7 @@
         const saveUpdateAssocBtn = document.getElementById('saveUpdateAssocBtn');
         const assocCountLabel = document.getElementById('assocCountLabel');
         const assocTableBody = document.getElementById('assocTableBody');
+
         const exportJsonBtn = document.getElementById('exportJsonBtn');
         const importJsonInput = document.getElementById('importJsonInput');
 
@@ -803,17 +958,13 @@
         const hfcrScanFeedback = document.getElementById('hfcrScanFeedback');
 
         window.onload = () => {
-            renderAssociatesList();
-            
-            savedHistory = savedHistory.filter(i => {
-                const eff = getEffectiveStatus(i);
-                return eff !== 'Delivered' && eff !== 'RTO Done';
-            });
-            localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
-            currentDataset = [...savedHistory];
+            if (!db) {
+                syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Firestore Not Configured';
+                return;
+            }
 
-            renderDashboard();
-            updateBadges();
+            initRealtimeListeners();
 
             if (hfcrScanInput) {
                 hfcrScanInput.addEventListener('keydown', (e) => {
@@ -823,140 +974,102 @@
                     }
                 });
             }
-
-            if (isValidCloudUrl()) {
-                fetchCloudData();
-            } else {
-                syncBadge.className = 'bg-slate-700 text-slate-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-slate-600';
-                syncBadge.innerHTML = '<i class="fa-solid fa-hard-drive mr-1"></i> Local Device Mode';
-            }
         };
 
-        function isValidCloudUrl() {
-            return G_SHEET_API_URL && G_SHEET_API_URL.startsWith('https://script.google.com');
-        }
-
-        async function fetchCloudData() {
-            if (!isValidCloudUrl()) return;
-
-            syncBadge.className = 'bg-amber-950 text-amber-300 border border-amber-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-            syncBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-down mr-1 animate-spin"></i> Syncing...';
-
-            try {
-                const res = await fetch(G_SHEET_API_URL, { redirect: 'follow' });
-                if (!res.ok) throw new Error("HTTP error " + res.status);
-                const cloudData = await res.json();
-
-                if (cloudData.activeDataset) {
-                    savedHistory = cloudData.activeDataset
-                        .filter(i => {
-                            const eff = i.status;
-                            return eff !== 'Delivered' && eff !== 'RTO Done';
-                        })
-                        .map(i => ({
-                            ...i,
-                            inductedDate: cleanDateString(i.inductedDate)
-                        }));
-                    currentDataset = [...savedHistory];
-                    localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+        // -------------------------------------------------------------
+        // 2. FIRESTORE REAL-TIME SYNCHRONIZATION LISTENERS
+        // -------------------------------------------------------------
+        function initRealtimeListeners() {
+            // A. Metrics
+            db.collection("metrics").doc("overall").onSnapshot((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    cumulativeDeliveredCount = data.delivered || 0;
+                    cumulativeRtoDoneCount = data.rtoDone || 0;
+                } else {
+                    cumulativeDeliveredCount = 0;
+                    cumulativeRtoDoneCount = 0;
                 }
-
-                if (cloudData.metrics) {
-                    cumulativeDeliveredCount = cloudData.metrics.delivered || 0;
-                    cumulativeRtoDoneCount = cloudData.metrics.rtoDone || 0;
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
-                }
-
-                if (cloudData.overrideMap) {
-                    overrideMap = cloudData.overrideMap;
-                    localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
-                }
-
-                if (cloudData.hfcrScans) {
-                    hfcrScannedMap = cloudData.hfcrScans;
-                    localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
-                }
-
-                if (cloudData.associateMap && Object.keys(cloudData.associateMap).length > 0) {
-                    associateMap = cloudData.associateMap;
-                    localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
-                    renderAssociatesList();
-                }
-
                 renderDashboard();
-                renderTtTable();
-                renderHfcrTable();
-                updateBadges();
+            });
 
-                syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-                syncBadge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> G-Sheet Synced';
-            } catch (err) {
-                console.warn("Cloud fetch failed, using local offline copy:", err);
-                syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-                syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Offline Mode';
-            }
-        }
-
-        async function pushCloudData() {
-            if (!isValidCloudUrl()) return;
-
-            syncBadge.className = 'bg-amber-950 text-amber-300 border border-amber-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-            syncBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-1 animate-spin"></i> Saving to Cloud...';
-
-            try {
-                const payload = {
-                    activeDataset: savedHistory,
-                    metrics: {
-                        delivered: cumulativeDeliveredCount,
-                        rtoDone: cumulativeRtoDoneCount
-                    },
-                    overrideMap: overrideMap,
-                    hfcrScans: hfcrScannedMap,
-                    associateMap: associateMap
-                };
-
-                await fetch(G_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload)
+            // B. Associates Master
+            db.collection("associates").onSnapshot((snapshot) => {
+                associateMap = {};
+                snapshot.forEach(doc => {
+                    associateMap[doc.id.trim().toUpperCase()] = doc.data();
                 });
+                renderAssociatesList();
+                if (currentDataset.length > 0) {
+                    currentDataset = currentDataset.map(item => ({
+                        ...item,
+                        associateName: getAssociateName(item.driverId)
+                    }));
+                    renderDashboard();
+                }
+            });
 
-                syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-                syncBadge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> G-Sheet Synced';
-            } catch (err) {
-                console.error("Cloud push failed:", err);
-                syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
-                syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Save Failed';
-            }
-        }
-
-        async function clearCurrentSessionData() {
-            if (confirm("Reset tracking data, cumulative counts, and manual overrides?")) {
-                localStorage.removeItem(STORAGE_KEY_DATA);
-                localStorage.removeItem(STORAGE_KEY_OVERRIDES);
-                localStorage.removeItem(STORAGE_KEY_HFCR_SCANS);
-                localStorage.removeItem(STORAGE_KEY_CUMULATIVE_DELIVERED);
-                localStorage.removeItem(STORAGE_KEY_CUMULATIVE_RTODONE);
-
-                savedHistory = [];
-                currentDataset = [];
-                currentlyFilteredData = [];
+            // C. Manual Overrides
+            db.collection("overrides").onSnapshot((snapshot) => {
                 overrideMap = {};
-                hfcrScannedMap = {};
-                cumulativeDeliveredCount = 0;
-                cumulativeRtoDoneCount = 0;
-
+                snapshot.forEach(doc => {
+                    overrideMap[doc.id] = doc.data();
+                });
                 renderDashboard();
                 renderTtTable();
-                renderHfcrTable();
                 updateBadges();
+            });
 
-                await pushCloudData();
-            }
+            // D. HFCR Scans
+            db.collection("hfcr_scans").onSnapshot((snapshot) => {
+                hfcrScannedMap = {};
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    hfcrScannedMap[doc.id] = d.scanTime || new Date().toLocaleString();
+                });
+                renderHfcrTable();
+            });
+
+            // E. Uploaded Induction File Archive Backups
+            db.collection("file_backups").orderBy("uploadedAt", "desc").limit(30).onSnapshot((snapshot) => {
+                fileBackupsList = [];
+                snapshot.forEach(doc => {
+                    fileBackupsList.push({ id: doc.id, ...doc.data() });
+                });
+                const bkBadge = document.getElementById('bkFilesCount');
+                if (bkBadge) bkBadge.innerText = fileBackupsList.length;
+            });
+
+            // F. Active Shipments
+            db.collection("shipments")
+                .where("isArchived", "==", false)
+                .onSnapshot((snapshot) => {
+                    const updated = [];
+                    snapshot.forEach(doc => {
+                        const row = doc.data();
+                        row.trackingId = doc.id;
+                        row.associateName = getAssociateName(row.driverId);
+                        updated.push(row);
+                    });
+
+                    currentDataset = updated;
+                    renderDashboard();
+                    updateBadges();
+                    renderTtTable();
+                    renderHfcrTable();
+
+                    syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                    syncBadge.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i> Live Realtime Sync';
+                }, (err) => {
+                    console.error("Firestore sync failure:", err);
+                    syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                    syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Sync Error';
+                });
         }
 
+        // -------------------------------------------------------------
+        // 3. SANITIZATION & LOGISTICS OPERATIONAL LOGIC
+        // -------------------------------------------------------------
         function sanitizeTrackingId(rawId) {
             if (!rawId) return 'N/A';
             let str = String(rawId).replace(/^'+/, '').trim();
@@ -974,7 +1087,15 @@
         function cleanDateString(rawDate) {
             if (!rawDate || rawDate === 'N/A' || rawDate === 'null' || rawDate === 'undefined') return 'N/A';
             let str = String(rawDate).replace(/^'+/, '').trim();
-            
+
+            const ddmmyyyyMatch = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})/);
+            if (ddmmyyyyMatch) {
+                const d = ddmmyyyyMatch[1].padStart(2, '0');
+                const m = ddmmyyyyMatch[2].padStart(2, '0');
+                const y = ddmmyyyyMatch[3];
+                return `${d}-${m}-${y}`;
+            }
+
             const isoMatch = str.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})/);
             if (isoMatch) {
                 const y = isoMatch[1];
@@ -983,11 +1104,11 @@
                 return `${d}-${m}-${y}`;
             }
 
-            const ddmmyyyyMatch = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})/);
-            if (ddmmyyyyMatch) {
-                const d = ddmmyyyyMatch[1].padStart(2, '0');
-                const m = ddmmyyyyMatch[2].padStart(2, '0');
-                const y = ddmmyyyyMatch[3];
+            const parsed = new Date(str);
+            if (!isNaN(parsed.getTime())) {
+                const d = String(parsed.getDate()).padStart(2, '0');
+                const m = String(parsed.getMonth() + 1).padStart(2, '0');
+                const y = parsed.getFullYear();
                 return `${d}-${m}-${y}`;
             }
 
@@ -1098,13 +1219,7 @@
             if (stateUpper === 'HELD' && reasonUpper.includes('PENDING CUSTOMER FEEDBACK')) {
                 return 'Hold For Customer Request';
             }
-            if (stateUpper === 'MARKED FOR REPROCESS') {
-                return 'Ready For Fc Return / RTO Pending';
-            }
-            if (stateUpper === 'HELD' && reasonUpper.includes('PENDING VERIFICATION')) {
-                return 'Ready For Fc Return / RTO Pending';
-            }
-            if (stateUpper === 'RECEIVED' && destUpper.includes('MIDDLE_MILE_NODE')) {
+            if (stateUpper === 'MARKED FOR REPROCESS' || stateUpper === 'HELD' && reasonUpper.includes('PENDING VERIFICATION') || stateUpper === 'RECEIVED' && destUpper.includes('MIDDLE_MILE_NODE')) {
                 return 'Ready For Fc Return / RTO Pending';
             }
             if (stateUpper === 'REMOVED') {
@@ -1141,25 +1256,185 @@
         function getAssociateName(rawDriverId) {
             if (!rawDriverId) return 'Unassigned';
             const cleanId = String(rawDriverId).trim().toUpperCase();
+
+            if (
+                cleanId === '' ||
+                cleanId === 'N/A' ||
+                cleanId === 'NA' ||
+                cleanId === 'NULL' ||
+                cleanId === 'NIL' ||
+                cleanId === 'NILL' ||
+                cleanId === 'UNDEFINED' ||
+                cleanId === '0' ||
+                cleanId === '-'
+            ) {
+                return 'Unassigned';
+            }
+
+            if (associateMap[cleanId]) {
+                const entry = associateMap[cleanId];
+                const resolvedName = (typeof entry === 'object' && entry !== null) ? (entry.name || '') : String(entry);
+                if (resolvedName.trim()) return resolvedName.trim();
+            }
+
             for (let key in associateMap) {
                 if (key.trim().toUpperCase() === cleanId) {
-                    const obj = associateMap[key];
-                    return (typeof obj === 'object' && obj !== null) ? (obj.name || 'Unassigned') : String(obj);
+                    const entry = associateMap[key];
+                    const resolvedName = (typeof entry === 'object' && entry !== null) ? (entry.name || '') : String(entry);
+                    if (resolvedName.trim()) return resolvedName.trim();
                 }
             }
+
             return 'Unassigned';
         }
 
         function extractDriverIdFromRow(row) {
+            const possibleDriverHeaders = [
+                'driverid', 'driver', 'daname', 'transporterid', 'associateid', 
+                'associate', 'associatename', 'rider', 'ridername', 'da', 
+                'deliveryassociate', 'agentname', 'drivername'
+            ];
+
             for (let key in row) {
                 const normKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-                if (['driverid', 'driver', 'daname', 'transporterid', 'associateid', 'associate'].includes(normKey)) {
-                    if (row[key]) return String(row[key]).trim();
+                if (possibleDriverHeaders.includes(normKey)) {
+                    const val = String(row[key] || '').trim();
+                    const checkUpper = val.toUpperCase();
+                    if (
+                        val && 
+                        checkUpper !== 'N/A' && 
+                        checkUpper !== 'NA' && 
+                        checkUpper !== 'NULL' && 
+                        checkUpper !== 'NIL' && 
+                        checkUpper !== 'NILL' && 
+                        checkUpper !== '0' && 
+                        checkUpper !== '-'
+                    ) {
+                        return val;
+                    }
                 }
             }
             return '';
         }
 
+        // -------------------------------------------------------------
+        // CALENDAR PICKER STATE & RENDERING ENGINE
+        // -------------------------------------------------------------
+        function toggleCalendarDropdown() {
+            const pop = document.getElementById('calendarPopover');
+            const isHidden = pop.classList.contains('hidden');
+            document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+            if (isHidden) {
+                pop.classList.remove('hidden');
+                renderCalendar();
+            } else {
+                pop.classList.add('hidden');
+            }
+        }
+
+        document.addEventListener('click', (e) => {
+            const container = document.getElementById('calendarDropdownContainer');
+            if (container && !container.contains(e.target)) {
+                document.getElementById('calendarPopover')?.classList.add('hidden');
+            }
+        });
+
+        function navigateCalendarMonth(step) {
+            calendarCurrentDate.setMonth(calendarCurrentDate.getMonth() + step);
+            renderCalendar();
+        }
+
+        function selectCalendarDate(dateStr) {
+            const dateInput = document.getElementById('module1DateFilter');
+            const displaySpan = document.getElementById('selectedDateDisplay');
+            
+            dateInput.value = dateStr;
+            if (!dateStr) {
+                displaySpan.innerHTML = `<i class="fa-regular fa-calendar text-blue-400"></i> All Inducted Dates`;
+            } else {
+                displaySpan.innerHTML = `<i class="fa-regular fa-calendar-check text-emerald-400"></i> ${dateStr}`;
+            }
+            
+            document.getElementById('calendarPopover').classList.add('hidden');
+            renderDashboard();
+        }
+
+        function renderCalendar() {
+            const monthYearLabel = document.getElementById('calendarMonthYearLabel');
+            const daysGrid = document.getElementById('calendarDaysGrid');
+            if (!monthYearLabel || !daysGrid) return;
+
+            const year = calendarCurrentDate.getFullYear();
+            const month = calendarCurrentDate.getMonth();
+            
+            const monthNames = [
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ];
+            monthYearLabel.innerText = `${monthNames[month]} ${year}`;
+
+            const uploadedDateSet = new Set(
+                currentDataset
+                    .map(item => cleanDateString(item.inductedDate))
+                    .filter(d => d && d !== 'N/A')
+            );
+
+            const firstDayIndex = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const today = new Date();
+            const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            const selectedDate = document.getElementById('module1DateFilter').value;
+
+            let html = '';
+
+            for (let i = 0; i < firstDayIndex; i++) {
+                html += `<div class="h-9"></div>`;
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const thisDateObj = new Date(year, month, day);
+                const dayStr = String(day).padStart(2, '0');
+                const monthStr = String(month + 1).padStart(2, '0');
+                const dateKey = `${dayStr}-${monthStr}-${year}`;
+
+                const isFuture = thisDateObj > todayZero;
+                const isSelected = selectedDate === dateKey;
+                const hasData = uploadedDateSet.has(dateKey);
+
+                if (isFuture) {
+                    html += `
+                        <div class="h-9 flex flex-col items-center justify-center rounded text-xs text-slate-600 cursor-not-allowed">
+                            <span>${day}</span>
+                        </div>
+                    `;
+                } else if (hasData) {
+                    html += `
+                        <button type="button" onclick="selectCalendarDate('${dateKey}')" title="${dateKey} (Data Uploaded)"
+                            class="h-9 flex flex-col items-center justify-center rounded-lg text-xs font-bold transition relative group 
+                            ${isSelected ? 'bg-emerald-600 text-white ring-2 ring-emerald-300' : 'bg-emerald-950/40 text-emerald-300 border border-emerald-700/60 hover:bg-emerald-800/50'}">
+                            <span>${day}</span>
+                            <i class="fa-solid fa-check text-[10px] text-emerald-400 mt-0.5"></i>
+                        </button>
+                    `;
+                } else {
+                    html += `
+                        <button type="button" onclick="selectCalendarDate('${dateKey}')" title="${dateKey} (No Data Uploaded)"
+                            class="h-9 flex flex-col items-center justify-center rounded-lg text-xs font-semibold transition relative group 
+                            ${isSelected ? 'bg-rose-600 text-white ring-2 ring-rose-300' : 'bg-rose-950/30 text-rose-300 border border-rose-800/40 hover:bg-rose-900/40'}">
+                            <span>${day}</span>
+                            <span class="text-[9px] leading-none text-rose-400 mt-0.5">⚠️</span>
+                        </button>
+                    `;
+                }
+            }
+
+            daysGrid.innerHTML = html;
+        }
+
+        // -------------------------------------------------------------
+        // 4. ATOMIC DATABASE COMMITS, OVERRIDES & RESET OPERATIONS
+        // -------------------------------------------------------------
         function openManualOverrideModal(tid) {
             activeOverrideTid = sanitizeTrackingId(tid);
             selectedOverrideAction = null;
@@ -1175,7 +1450,6 @@
             });
             document.getElementById('modalConfirmPromptBox').classList.add('hidden');
             document.getElementById('evictionHint').classList.add('hidden');
-            document.getElementById('ttModuleHint').classList.add('hidden');
 
             const commitBtn = document.getElementById('btnCommitModalOverride');
             commitBtn.disabled = true;
@@ -1208,17 +1482,10 @@
             confirmBox.classList.remove('hidden');
 
             const evictionHint = document.getElementById('evictionHint');
-            const ttHint = document.getElementById('ttModuleHint');
-
             if (actionName === 'Delivered' || actionName === 'RTO Done') {
                 evictionHint.classList.remove('hidden');
-                ttHint.classList.add('hidden');
-            } else if (actionName === 'TT Raised' || actionName === 'Physically Not Available') {
-                evictionHint.classList.add('hidden');
-                ttHint.classList.remove('hidden');
             } else {
                 evictionHint.classList.add('hidden');
-                ttHint.classList.add('hidden');
             }
 
             const commitBtn = document.getElementById('btnCommitModalOverride');
@@ -1227,330 +1494,433 @@
         }
 
         async function commitModalOverride() {
-            if (!activeOverrideTid || !selectedOverrideAction) return;
+            if (!activeOverrideTid || !selectedOverrideAction || !db) return;
 
-            if (selectedOverrideAction === 'Delivered' || selectedOverrideAction === 'RTO Done') {
-                if (selectedOverrideAction === 'Delivered') {
-                    cumulativeDeliveredCount++;
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
-                } else if (selectedOverrideAction === 'RTO Done') {
-                    cumulativeRtoDoneCount++;
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
-                }
+            const tid = activeOverrideTid;
+            const action = selectedOverrideAction;
 
-                savedHistory = savedHistory.filter(i => sanitizeTrackingId(i.trackingId) !== activeOverrideTid);
-                currentDataset = currentDataset.filter(i => sanitizeTrackingId(i.trackingId) !== activeOverrideTid);
-                localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
+            try {
+                if (action === 'Delivered' || action === 'RTO Done') {
+                    const metricsRef = db.collection("metrics").doc("overall");
+                    const shipmentRef = db.collection("shipments").doc(tid);
+                    const overrideRef = db.collection("overrides").doc(tid);
 
-                delete overrideMap[activeOverrideTid];
-                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
-            } else {
-                if (!overrideMap[activeOverrideTid]) {
-                    overrideMap[activeOverrideTid] = { overrideStatus: selectedOverrideAction, ttStatus: 'Not-Resolved', remark: '' };
+                    await db.runTransaction(async (transaction) => {
+                        const mDoc = await transaction.get(metricsRef);
+                        let delCount = 0;
+                        let rtoCount = 0;
+                        if (mDoc.exists) {
+                            delCount = mDoc.data().delivered || 0;
+                            rtoCount = mDoc.data().rtoDone || 0;
+                        }
+
+                        if (action === 'Delivered') delCount++;
+                        if (action === 'RTO Done') rtoCount++;
+
+                        transaction.set(metricsRef, { delivered: delCount, rtoDone: rtoCount }, { merge: true });
+                        transaction.set(shipmentRef, { status: action, isArchived: true, lastUpdatedTime: new Date().toISOString() }, { merge: true });
+                        transaction.delete(overrideRef);
+                    });
                 } else {
-                    overrideMap[activeOverrideTid].overrideStatus = selectedOverrideAction;
+                    await db.collection("overrides").doc(tid).set({
+                        overrideStatus: action,
+                        ttStatus: 'Not-Resolved',
+                        remark: '',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
                 }
-                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
+
+                closeManualOverrideModal();
+            } catch (err) {
+                alert("Failed to commit status override: " + err.message);
             }
-
-            closeManualOverrideModal();
-            renderDashboard();
-            applyFiltersAndRender();
-            updateBadges();
-            renderTtTable();
-            renderHfcrTable();
-
-            await pushCloudData();
         }
 
         async function resetSingleOverrideFromModule3(tid) {
             const cleanTid = sanitizeTrackingId(tid);
-            if (confirm(`Remove manual override for TID ${cleanTid} and revert to default CSV status?`)) {
-                delete overrideMap[cleanTid];
-                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
-                renderDashboard();
-                applyFiltersAndRender();
-                updateBadges();
-                renderTtTable();
-                renderHfcrTable();
-
-                await pushCloudData();
+            if (confirm(`Remove manual override for TID ${cleanTid}?`) && db) {
+                await db.collection("overrides").doc(cleanTid).delete();
             }
         }
 
         async function updateTtStatus(tid, newTtStatus) {
             const cleanTid = sanitizeTrackingId(tid);
-            if (overrideMap[cleanTid]) {
-                overrideMap[cleanTid].ttStatus = newTtStatus;
-                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
-                renderTtTable();
-                await pushCloudData();
+            if (db) {
+                await db.collection("overrides").doc(cleanTid).set({ ttStatus: newTtStatus }, { merge: true });
             }
         }
 
         async function updateTtRemark(tid, newRemark) {
             const cleanTid = sanitizeTrackingId(tid);
-            if (overrideMap[cleanTid]) {
-                overrideMap[cleanTid].remark = newRemark;
-                localStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(overrideMap));
-                await pushCloudData();
+            if (db) {
+                await db.collection("overrides").doc(cleanTid).set({ remark: newRemark }, { merge: true });
             }
         }
 
-        function updateBadges() {
-            const ttShipments = currentDataset.filter(item => {
-                const eff = getEffectiveStatus(item);
-                return eff === 'TT Raised' || eff === 'Physically Not Available';
+        async function processManualHfcrScan() {
+            const raw = hfcrScanInput.value.trim();
+            if (!raw || !db) return;
+
+            const cleanScanTid = sanitizeTrackingId(raw);
+            const key = cleanScanTid.toUpperCase();
+            const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === key);
+            const nowTime = new Date().toLocaleString();
+
+            await db.collection("hfcr_scans").doc(cleanScanTid).set({
+                scanTime: nowTime,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
-            ttCountBadge.innerText = ttShipments.length;
 
-            const hfcrShipments = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
-            hfcrCountBadge.innerText = hfcrShipments.length;
-        }
+            hfcrScanInput.value = '';
+            hfcrScanFeedback.classList.remove('hidden', 'text-emerald-400', 'text-amber-400', 'text-rose-400');
 
-        function filterM1TableByStatus(statusName) {
-            if (activeSelectedCardStatus === statusName) {
-                activeSelectedCardStatus = null;
-            } else {
-                activeSelectedCardStatus = statusName;
-            }
-
-            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
-            if (activeSelectedCardStatus) {
-                const cardMap = {
-                    'Delivery Failed': 'card_DeliveryFailed',
-                    'Delivery Rejected': 'card_DeliveryRejected',
-                    'Out On Road': 'card_OutOnRoad',
-                    'Hold For Redelivery': 'card_HoldRedelivery',
-                    'Core - Dwell': 'card_CoreDwell',
-                    'Ready For Fc Return / RTO Pending': 'card_RtoPending',
-                    'Hold For Customer Request': 'card_HoldCustomerReq',
-                    'Undeliverable': 'card_Undeliverable',
-                    'Damaged': 'card_Damaged',
-                    'At Wrong station': 'card_WrongStation',
-                    'DATA_EXCEPTION': 'card_DataException',
-                    'AGEING_5': 'card_Ageing5',
-                    'CRITICAL_AGEING': 'card_CriticalAgeing'
-                };
-                const activeId = cardMap[activeSelectedCardStatus];
-                if (activeId && document.getElementById(activeId)) {
-                    document.getElementById(activeId).classList.add('active-card-filter');
+            if (match) {
+                const effectiveSt = getEffectiveStatus(match);
+                if (effectiveSt === 'Hold For Customer Request') {
+                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-emerald-400 flex items-center gap-1.5";
+                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-check"></i> Verified: TID ${cleanScanTid} matches system HFCR inventory!`;
+                } else {
+                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-amber-400 flex items-center gap-1.5";
+                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Warning: TID ${cleanScanTid} scanned, but its status is "${effectiveSt}".`;
                 }
+            } else {
+                hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-rose-400 flex items-center gap-1.5";
+                hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> Foreign Scan: TID ${cleanScanTid} not found in active exceptions.`;
             }
 
-            renderDashboard();
+            setTimeout(() => {
+                if (hfcrScanInput) hfcrScanInput.focus();
+            }, 50);
+        }
 
-            const reportCard = document.getElementById('m1ReportCard');
-            if (reportCard) {
-                reportCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        async function removeHfcrScan(tid) {
+            const cleanTid = sanitizeTrackingId(tid);
+            if (db) {
+                await db.collection("hfcr_scans").doc(cleanTid).delete();
             }
         }
 
-        function clearM1CardFilter() {
-            activeSelectedCardStatus = null;
-            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
-            renderDashboard();
+        async function clearHfcrPhysicalScans() {
+            if (confirm("Clear all physical audit scan records from Firestore?") && db) {
+                const snap = await db.collection("hfcr_scans").get();
+                const batch = db.batch();
+                snap.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+            }
         }
 
-        function viewAssociateTrackingIds(associateName, specificStatus = null, ageingFilterType = null) {
-            resetAllModule2Filters();
+        async function clearCurrentSessionData() {
+            if (confirm("Are you sure you want to purge active exceptions from the database?") && db) {
+                const snap = await db.collection("shipments").where("isArchived", "==", false).get();
+                const chunks = [];
+                let currentChunk = db.batch();
+                let count = 0;
 
-            if (associateName) {
-                document.querySelectorAll('.multi-assoc-cb').forEach(cb => {
-                    if (cb.value === associateName) cb.checked = true;
+                snap.forEach(doc => {
+                    currentChunk.delete(doc.ref);
+                    count++;
+                    if (count % 400 === 0) {
+                        chunks.push(currentChunk.commit());
+                        currentChunk = db.batch();
+                    }
                 });
-                document.getElementById('lblMultiAssociate').innerText = associateName;
+                chunks.push(currentChunk.commit());
+                await Promise.all(chunks);
+                alert("Active shipments cleared from Firestore.");
+            }
+        }
+
+        // -------------------------------------------------------------
+        // ERASE ENTIRE DASHBOARD DATA FROM FIREBASE
+        // -------------------------------------------------------------
+        async function eraseEntireDashboardData() {
+            if (!db) return alert("Firestore database is not configured.");
+
+            const confirm1 = confirm("⚠️ DANGER: You are about to ERASE ALL dashboard tracking data from Firestore (All shipments, active exceptions, manual overrides, HFCR scans, file archives, and cumulative metrics)!\n\nDriver Associates will be kept intact.\n\nDo you want to proceed?");
+            if (!confirm1) return;
+
+            const safetyPasskey = prompt("To confirm full deletion, type 'ERASE' in capital letters below:");
+            if (safetyPasskey !== "ERASE") {
+                return alert("Verification failed. Data deletion was cancelled.");
             }
 
-            if (specificStatus && specificStatus !== 'AGEING_5' && specificStatus !== 'CRITICAL_AGEING' && specificStatus !== 'DATA_EXCEPTION') {
-                document.querySelectorAll('.multi-status-cb').forEach(cb => {
-                    if (cb.value === specificStatus) cb.checked = true;
+            syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+            syncBadge.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Erasing Database...';
+
+            try {
+                const collectionsToPurge = ["shipments", "overrides", "hfcr_scans", "file_backups"];
+
+                for (const colName of collectionsToPurge) {
+                    const snap = await db.collection(colName).get();
+                    const batches = [];
+                    let currentBatch = db.batch();
+                    let opCount = 0;
+
+                    snap.forEach(doc => {
+                        currentBatch.delete(doc.ref);
+                        opCount++;
+                        if (opCount % 400 === 0) {
+                            batches.push(currentBatch.commit());
+                            currentBatch = db.batch();
+                        }
+                    });
+                    batches.push(currentBatch.commit());
+                    await Promise.all(batches);
+                }
+
+                await db.collection("metrics").doc("overall").set({
+                    delivered: 0,
+                    rtoDone: 0,
+                    lastPurgeTime: new Date().toISOString()
                 });
-                document.getElementById('lblMultiStatus').innerText = specificStatus;
-            }
 
-            if (ageingFilterType === '5' || specificStatus === 'AGEING_5') {
-                document.getElementById('chkAgeing5Only').checked = true;
-                document.getElementById('chkCriticalOnly').checked = false;
-            } else if (ageingFilterType === '10' || specificStatus === 'CRITICAL_AGEING') {
-                document.getElementById('chkCriticalOnly').checked = true;
-                document.getElementById('chkAgeing5Only').checked = false;
-            }
+                currentDataset = [];
+                currentlyFilteredData = [];
+                overrideMap = {};
+                hfcrScannedMap = {};
+                fileBackupsList = [];
+                cumulativeDeliveredCount = 0;
+                cumulativeRtoDoneCount = 0;
 
-            const m1Date = module1DateFilter.value;
-            if (m1Date) {
-                document.querySelectorAll('.multi-date-cb').forEach(cb => {
-                    if (cb.value === m1Date) cb.checked = true;
+                renderDashboard();
+                renderTtTable();
+                renderHfcrTable();
+                updateBadges();
+
+                syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                syncBadge.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i> Live Realtime Sync';
+
+                alert("✅ Success: All operational shipment records, exceptions, overrides, scans, file archives, and metrics have been completely erased from Firestore.");
+            } catch (err) {
+                console.error("Purge failure:", err);
+                alert("Failed to erase database: " + err.message);
+            }
+        }
+
+        // -------------------------------------------------------------
+        // FIREBASE BACKUP & TABULAR INSPECTOR ENGINE
+        // -------------------------------------------------------------
+        function openBackupModal() {
+            document.getElementById('backupModal').classList.remove('hidden');
+            refreshBackupData();
+        }
+
+        function closeBackupModal() {
+            document.getElementById('backupModal').classList.add('hidden');
+        }
+
+        function switchBackupPreview(collectionKey) {
+            activeBackupCollection = collectionKey;
+            ['shipments_table', 'shipments', 'file_backups', 'overrides', 'hfcr_scans', 'associates', 'metrics'].forEach(k => {
+                const btn = document.getElementById(`btnBk_${k}`);
+                if (btn) {
+                    if (k === collectionKey) {
+                        btn.className = "text-xs px-3 py-1.5 rounded-t-lg bg-indigo-600 text-white font-bold transition";
+                    } else {
+                        btn.className = "text-xs px-3 py-1.5 rounded-t-lg bg-slate-900 text-slate-400 font-semibold hover:text-white transition";
+                    }
+                }
+            });
+
+            const tableContainer = document.getElementById('bkTableViewContainer');
+            const jsonContainer = document.getElementById('bkJsonContainer');
+
+            if (collectionKey === 'shipments_table') {
+                tableContainer.classList.remove('hidden');
+                jsonContainer.classList.add('hidden');
+                renderBackupShipmentsTable();
+            } else {
+                tableContainer.classList.add('hidden');
+                jsonContainer.classList.remove('hidden');
+                renderBackupPreview();
+            }
+        }
+
+        function refreshBackupData() {
+            document.getElementById('bkShipmentsCount').innerText = currentDataset.length;
+            document.getElementById('bkOverridesCount').innerText = Object.keys(overrideMap).length;
+            document.getElementById('bkScansCount').innerText = Object.keys(hfcrScannedMap).length;
+            document.getElementById('bkAssociatesCount').innerText = Object.keys(associateMap).length;
+            document.getElementById('bkFilesCount').innerText = fileBackupsList.length;
+            document.getElementById('bkTimestampLabel').innerText = new Date().toLocaleString();
+
+            if (activeBackupCollection === 'shipments_table') {
+                renderBackupShipmentsTable();
+            } else {
+                renderBackupPreview();
+            }
+        }
+
+        function renderBackupShipmentsTable() {
+            const tableBody = document.getElementById('bkShipmentsTableBody');
+            const searchVal = (document.getElementById('bkTableSearch')?.value || '').toLowerCase().trim();
+            const summarySpan = document.getElementById('bkTableSummary');
+
+            let filtered = currentDataset;
+            if (searchVal) {
+                filtered = filtered.filter(item => {
+                    const tid = (item.trackingId || '').toLowerCase();
+                    const dId = (item.driverId || '').toLowerCase();
+                    const aName = (item.associateName || '').toLowerCase();
+                    const ind = (item.inductedDate || '').toLowerCase();
+                    const st = getEffectiveStatus(item).toLowerCase();
+                    return tid.includes(searchVal) || dId.includes(searchVal) || aName.includes(searchVal) || ind.includes(searchVal) || st.includes(searchVal);
                 });
-                document.getElementById('lblMultiDate').innerText = m1Date;
             }
 
-            const banner = document.getElementById('activeQuickFilterBanner');
-            const bannerLabel = document.getElementById('activeQuickFilterLabel');
-            let bannerText = associateName ? `Associate: ${associateName}` : 'All Associates';
-            if (specificStatus && specificStatus !== 'AGEING_5' && specificStatus !== 'CRITICAL_AGEING' && specificStatus !== 'DATA_EXCEPTION') bannerText += ` | Status: ${specificStatus}`;
-            if (specificStatus === 'DATA_EXCEPTION') bannerText += ' | Status: DATA (Exc. Damaged/DLV/RTO)';
-            if (ageingFilterType === '5' || specificStatus === 'AGEING_5') bannerText += ' | Ageing >5D';
-            if (ageingFilterType === '10' || specificStatus === 'CRITICAL_AGEING') bannerText += ' | Critical Ageing >10D';
-            if (m1Date) bannerText += ` | Date: ${m1Date}`;
-            bannerLabel.innerText = bannerText;
-            banner.classList.remove('hidden');
+            summarySpan.innerText = `Showing ${filtered.length} of ${currentDataset.length} stored shipments`;
 
-            switchToModule2();
-            applyFiltersAndRender();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function onAgeingCheckboxChange(changed) {
-            if (changed === '5' && document.getElementById('chkAgeing5Only').checked) {
-                document.getElementById('chkCriticalOnly').checked = false;
-            } else if (changed === '10' && document.getElementById('chkCriticalOnly').checked) {
-                document.getElementById('chkAgeing5Only').checked = false;
+            if (filtered.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">No shipments matched search.</td></tr>`;
+                return;
             }
-            applyFiltersAndRender();
+
+            tableBody.innerHTML = filtered.map(item => {
+                const effStatus = getEffectiveStatus(item);
+                const ageing = calculateAgeingDays(item.inductedDate);
+                const cleanTid = sanitizeTrackingId(item.trackingId);
+
+                return `
+                    <tr class="hover:bg-slate-900 transition">
+                        <td class="px-3 py-2 text-white font-bold">${cleanTid}</td>
+                        <td class="px-3 py-2 text-emerald-400 font-semibold">${formatDateOnly(item.inductedDate)}</td>
+                        <td class="px-3 py-2 text-slate-300 font-bold">${ageing} D</td>
+                        <td class="px-3 py-2 text-indigo-300">${item.driverId || 'N/A'}</td>
+                        <td class="px-3 py-2 text-slate-300">${item.associateName || 'Unassigned'}</td>
+                        <td class="px-3 py-2">
+                            <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+                                ${effStatus}
+                            </span>
+                        </td>
+                        <td class="px-3 py-2 text-amber-300">${item.type || 'PREPAID'}</td>
+                        <td class="px-3 py-2 text-slate-400">${formatDateOnly(item.lastUpdatedTime)}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
-        function toggleDropdown(id) {
-            const el = document.getElementById(id);
-            const isHidden = el.classList.contains('hidden');
-            document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
-            if (isHidden) el.classList.remove('hidden');
+        function renderBackupPreview() {
+            const previewTitle = document.getElementById('bkCurrentPreviewTitle');
+            const viewer = document.getElementById('bkJsonViewer');
+
+            let dataSlice = {};
+            if (activeBackupCollection === 'shipments') {
+                previewTitle.innerText = `Preview: shipments (Showing ${Math.min(currentDataset.length, 10)} of ${currentDataset.length} records)`;
+                dataSlice = currentDataset.slice(0, 10);
+            } else if (activeBackupCollection === 'file_backups') {
+                previewTitle.innerText = `Preview: file_backups (${fileBackupsList.length} induction files saved)`;
+                dataSlice = fileBackupsList.map(f => ({
+                    fileName: f.fileName,
+                    inductedDate: f.inductedDate,
+                    uploadedAt: f.uploadedAt,
+                    recordCount: f.recordCount
+                }));
+            } else if (activeBackupCollection === 'overrides') {
+                previewTitle.innerText = `Preview: overrides (${Object.keys(overrideMap).length} records)`;
+                dataSlice = overrideMap;
+            } else if (activeBackupCollection === 'hfcr_scans') {
+                previewTitle.innerText = `Preview: hfcr_scans (${Object.keys(hfcrScannedMap).length} records)`;
+                dataSlice = hfcrScannedMap;
+            } else if (activeBackupCollection === 'associates') {
+                previewTitle.innerText = `Preview: associates (${Object.keys(associateMap).length} records)`;
+                dataSlice = associateMap;
+            } else if (activeBackupCollection === 'metrics') {
+                previewTitle.innerText = `Preview: metrics/overall`;
+                dataSlice = {
+                    delivered: cumulativeDeliveredCount,
+                    rtoDone: cumulativeRtoDoneCount,
+                    totalCumulativeVolume: cumulativeDeliveredCount + cumulativeRtoDoneCount + currentDataset.length
+                };
+            }
+
+            viewer.textContent = JSON.stringify(dataSlice, null, 2);
         }
 
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.relative')) {
-                document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+        function copyCurrentPreviewJson() {
+            const viewer = document.getElementById('bkJsonViewer');
+            navigator.clipboard.writeText(viewer.textContent).then(() => {
+                alert("JSON preview copied to clipboard!");
+            });
+        }
+
+        async function downloadCompleteFirebaseBackup() {
+            if (!db) return alert("Firestore is not initialized.");
+
+            const originalBtnText = event?.target?.innerHTML || '';
+            const btn = event?.target;
+            if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Compiling Cloud Backup...`;
+
+            try {
+                const [shipmentsSnap, overridesSnap, scansSnap, associatesSnap, metricsSnap, filesSnap] = await Promise.all([
+                    db.collection("shipments").get(),
+                    db.collection("overrides").get(),
+                    db.collection("hfcr_scans").get(),
+                    db.collection("associates").get(),
+                    db.collection("metrics").get(),
+                    db.collection("file_backups").get()
+                ]);
+
+                const backupPayload = {
+                    metadata: {
+                        timestamp: new Date().toISOString(),
+                        projectId: firebaseConfig.projectId,
+                        generatedBy: "Delivery Tracking & Audit Desk",
+                        stats: {
+                            totalShipmentsInDB: shipmentsSnap.size,
+                            overridesCount: overridesSnap.size,
+                            scansCount: scansSnap.size,
+                            associatesCount: associatesSnap.size,
+                            archivedFilesCount: filesSnap.size
+                        }
+                    },
+                    metrics: {},
+                    associates: {},
+                    overrides: {},
+                    hfcr_scans: {},
+                    file_backups: {},
+                    shipments: {}
+                };
+
+                metricsSnap.forEach(d => backupPayload.metrics[d.id] = d.data());
+                associatesSnap.forEach(d => backupPayload.associates[d.id] = d.data());
+                overridesSnap.forEach(d => backupPayload.overrides[d.id] = d.data());
+                scansSnap.forEach(d => backupPayload.hfcr_scans[d.id] = d.data());
+                filesSnap.forEach(d => backupPayload.file_backups[d.id] = d.data());
+                shipmentsSnap.forEach(d => backupPayload.shipments[d.id] = d.data());
+
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupPayload, null, 2));
+                const dlAnchor = document.createElement('a');
+                dlAnchor.setAttribute("href", dataStr);
+                dlAnchor.setAttribute("download", `Firebase_Backup_${firebaseConfig.projectId}_${new Date().toISOString().slice(0, 10)}.json`);
+                document.body.appendChild(dlAnchor);
+                dlAnchor.click();
+                dlAnchor.remove();
+
+                if (btn) btn.innerHTML = originalBtnText;
+            } catch (err) {
+                console.error("Backup generation error:", err);
+                alert("Failed to build backup: " + err.message);
+                if (btn) btn.innerHTML = originalBtnText;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // 5. CSV BATCH UPLOAD WITH SEQUENTIAL PROCESSING & QUOTA CATCH
+        // -------------------------------------------------------------
+        csvFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                pendingFile = e.target.files[0];
+                newInductedDateInput.value = '';
+                selectUploadOption('NEW');
+                uploadTypeModal.classList.remove('hidden');
             }
         });
 
-        function populateMultiSelectDropdowns() {
-            const dates = [...new Set(currentDataset.map(i => formatDateOnly(i.inductedDate)))].filter(d => d && d !== 'N/A').sort();
-            const statuses = [...new Set(currentDataset.map(i => getEffectiveStatus(i)))].filter(Boolean).sort();
-            const associates = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
-
-            const ddDate = document.getElementById('dropdownDate');
-            ddDate.innerHTML = dates.map(d => `
-                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
-                    <input type="checkbox" value="${d}" onchange="onMultiFilterChange()" class="multi-date-cb"> ${d}
-                </label>
-            `).join('');
-
-            const ddStatus = document.getElementById('dropdownStatus');
-            ddStatus.innerHTML = statuses.map(s => `
-                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
-                    <input type="checkbox" value="${s}" onchange="onMultiFilterChange()" class="multi-status-cb"> ${s}
-                </label>
-            `).join('');
-
-            const ddAssoc = document.getElementById('dropdownAssociate');
-            ddAssoc.innerHTML = associates.map(a => `
-                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
-                    <input type="checkbox" value="${a}" onchange="onMultiFilterChange()" class="multi-assoc-cb"> ${a}
-                </label>
-            `).join('');
-        }
-
-        function getCheckedValues(className) {
-            return Array.from(document.querySelectorAll(`.${className}:checked`)).map(cb => cb.value);
-        }
-
-        function onMultiFilterChange() {
-            const selectedDates = getCheckedValues('multi-date-cb');
-            document.getElementById('lblMultiDate').innerText = selectedDates.length > 0 ? `${selectedDates.length} Dates` : 'Day Wise Date';
-
-            const selectedTypes = getCheckedValues('multi-type-cb');
-            document.getElementById('lblMultiType').innerText = selectedTypes.length > 0 ? `${selectedTypes.length} Types` : 'All Types';
-
-            const selectedStatuses = getCheckedValues('multi-status-cb');
-            document.getElementById('lblMultiStatus').innerText = selectedStatuses.length > 0 ? `${selectedStatuses.length} Statuses` : 'Active Statuses';
-
-            const selectedAssocs = getCheckedValues('multi-assoc-cb');
-            document.getElementById('lblMultiAssociate').innerText = selectedAssocs.length > 0 ? `${selectedAssocs.length} Associates` : 'Associate View';
-
-            applyFiltersAndRender();
-        }
-
-        function populateModule1Filters() {
-            const uniqueDates = [...new Set(currentDataset.map(i => formatDateOnly(i.inductedDate)))].filter(d => d && d !== 'N/A').sort();
-            const currDateSel = module1DateFilter.value;
-            module1DateFilter.innerHTML = `<option value="">All Inducted Dates</option>` + 
-                uniqueDates.map(d => `<option value="${d}">${d}</option>`).join('');
-            if (uniqueDates.includes(currDateSel)) module1DateFilter.value = currDateSel;
-
-            const uniqueAssocs = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
-            const currAssocSel = module1AssocFilter.value;
-            module1AssocFilter.innerHTML = `<option value="">All Associates</option>` + 
-                uniqueAssocs.map(a => `<option value="${a}">${a}</option>`).join('');
-            if (uniqueAssocs.includes(currAssocSel)) module1AssocFilter.value = currAssocSel;
-        }
-
-        function switchToModule2() {
-            tabModule2.classList.add('active-tab');
-            tabModule2.classList.remove('text-slate-400');
-            tabModule1.classList.remove('active-tab');
-            tabModule1.classList.add('text-slate-400');
-            tabModule3.classList.remove('active-tab');
-            tabModule3.classList.add('text-slate-400');
-            tabModule4.classList.remove('active-tab');
-            tabModule4.classList.add('text-slate-400');
-
-            module2View.classList.remove('hidden');
-            module1View.classList.add('hidden');
-            module3View.classList.add('hidden');
-            module4View.classList.add('hidden');
-        }
-
-        function switchToModule3() {
-            tabModule3.classList.add('active-tab');
-            tabModule3.classList.remove('text-slate-400');
-            tabModule1.classList.remove('active-tab');
-            tabModule1.classList.add('text-slate-400');
-            tabModule2.classList.remove('active-tab');
-            tabModule2.classList.add('text-slate-400');
-            tabModule4.classList.remove('active-tab');
-            tabModule4.classList.add('text-slate-400');
-
-            module3View.classList.remove('hidden');
-            module1View.classList.add('hidden');
-            module2View.classList.add('hidden');
-            module4View.classList.add('hidden');
-
-            renderTtTable();
-        }
-
-        function switchToModule4() {
-            tabModule4.classList.add('active-tab');
-            tabModule4.classList.remove('text-slate-400');
-            tabModule1.classList.remove('active-tab');
-            tabModule1.classList.add('text-slate-400');
-            tabModule2.classList.remove('active-tab');
-            tabModule2.classList.add('text-slate-400');
-            tabModule3.classList.remove('active-tab');
-            tabModule3.classList.add('text-slate-400');
-
-            module4View.classList.remove('hidden');
-            module1View.classList.add('hidden');
-            module2View.classList.add('hidden');
-            module3View.classList.add('hidden');
-
-            renderHfcrTable();
-            setTimeout(() => {
-                if (hfcrScanInput) hfcrScanInput.focus();
-            }, 100);
-        }
-
-        function resetAllModule2Filters() {
-            document.getElementById('activeQuickFilterBanner').classList.add('hidden');
-            searchInput.value = '';
-            document.getElementById('chkAgeing5Only').checked = false;
-            document.getElementById('chkCriticalOnly').checked = false;
-            document.querySelectorAll('.multi-date-cb, .multi-type-cb, .multi-status-cb, .multi-assoc-cb').forEach(cb => cb.checked = false);
-            document.getElementById('lblMultiDate').innerText = 'Day Wise Date';
-            document.getElementById('lblMultiType').innerText = 'All Types';
-            document.getElementById('lblMultiStatus').innerText = 'Active Statuses';
-            document.getElementById('lblMultiAssociate').innerText = 'Associate View';
-            applyFiltersAndRender();
-        }
+        cancelUploadModalBtn.addEventListener('click', () => {
+            pendingFile = null;
+            csvFileInput.value = '';
+            uploadTypeModal.classList.add('hidden');
+        });
 
         function selectUploadOption(type) {
             selectedUploadType = type;
@@ -1574,126 +1944,161 @@
             }
         }
 
-        csvFileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                pendingFile = e.target.files[0];
-                newInductedDateInput.value = '';
-                selectUploadOption('NEW');
-                uploadTypeModal.classList.remove('hidden');
-            }
-        });
-
-        cancelUploadModalBtn.addEventListener('click', () => {
-            pendingFile = null;
-            csvFileInput.value = '';
-            uploadTypeModal.classList.add('hidden');
-        });
-
         confirmUploadModalBtn.addEventListener('click', () => {
-            if (!pendingFile) return;
+            if (!pendingFile || !db) return;
 
             let batchInductedDate = 'N/A';
             if (selectedUploadType === 'NEW') {
                 const dateVal = newInductedDateInput.value;
-                if (dateVal) {
-                    batchInductedDate = cleanDateString(dateVal);
-                }
+                if (dateVal) batchInductedDate = cleanDateString(dateVal);
             }
+
+            syncBadge.className = 'bg-amber-950 text-amber-300 border border-amber-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+            syncBadge.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Processing CSV...';
+
+            const activeFileName = pendingFile.name;
+            const fileUploadTime = new Date().toISOString();
 
             Papa.parse(pendingFile, {
                 header: true,
                 skipEmptyLines: true,
-                dynamicTyping: false,
                 complete: async function(results) {
-                    const deduplicatedMap = new Map();
-                    savedHistory.forEach(item => {
-                        const cleanId = sanitizeTrackingId(item.trackingId);
-                        const cleanKey = cleanId.toUpperCase();
-                        if (cleanKey && cleanKey !== 'N/A') deduplicatedMap.set(cleanKey, item);
-                    });
-
-                    results.data.forEach(row => {
-                        const rawTrackingId = getField(row, ['trackingid', 'shipmentid', 'tracking_id', 'tracking']);
-                        const cleanTrackingId = sanitizeTrackingId(rawTrackingId);
-                        const cleanKey = cleanTrackingId.toUpperCase();
-                        if (cleanKey === 'N/A' || !cleanKey) return;
-
-                        const computedStatus = computeCurrentStatus(row);
-                        const rawLastUpdated = getField(row, ['lastupdatedtime', 'last_updated_time', 'date', 'lastupdated']);
-                        const driverId = extractDriverIdFromRow(row);
-
-                        if (computedStatus === 'Delivered') {
-                            cumulativeDeliveredCount++;
-                            deduplicatedMap.delete(cleanKey);
-                            return;
-                        }
-                        if (computedStatus === 'RTO Done') {
-                            cumulativeRtoDoneCount++;
-                            deduplicatedMap.delete(cleanKey);
-                            return;
-                        }
-
-                        let rowInductedDate = 'N/A';
-                        const existingRecord = deduplicatedMap.get(cleanKey);
-                        if (selectedUploadType === 'NEW' && batchInductedDate !== 'N/A') {
-                            rowInductedDate = batchInductedDate;
-                        } else if (existingRecord && existingRecord.inductedDate !== 'N/A') {
-                            rowInductedDate = cleanDateString(existingRecord.inductedDate);
-                        } else {
-                            let csvInducted = getField(row, ['inducteddate', 'inductdate', 'inducted_date']);
-                            rowInductedDate = csvInducted ? cleanDateString(csvInducted) : 'N/A';
-                        }
-
-                        const receivableVal = getField(row, ['receivableamount', 'receivable_amount', 'amount']);
-
-                        deduplicatedMap.set(cleanKey, {
-                            week: getWeekFromInductedDate(rowInductedDate),
-                            inductedDate: cleanDateString(rowInductedDate),
-                            trackingId: cleanTrackingId,
-                            driverId: driverId,
-                            associateName: getAssociateName(driverId),
-                            type: getType(receivableVal),
-                            status: computedStatus,
-                            lastUpdatedTime: cleanDateString(rawLastUpdated)
-                        });
-                    });
-
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DELIVERED, cumulativeDeliveredCount.toString());
-                    localStorage.setItem(STORAGE_KEY_CUMULATIVE_RTODONE, cumulativeRtoDoneCount.toString());
-
-                    savedHistory = Array.from(deduplicatedMap.values());
-                    currentDataset = [...savedHistory];
-                    localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(savedHistory));
-
                     uploadTypeModal.classList.add('hidden');
-                    csvFileInput.value = '';
-                    renderDashboard();
-                    updateBadges();
 
-                    await pushCloudData();
+                    try {
+                        // 1. Lightweight file archive: only store metadata (avoids the 1MB Firestore limit)
+                        if (selectedUploadType === 'NEW') {
+                            const fileArchiveId = `${batchInductedDate.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+                            await db.collection("file_backups").doc(fileArchiveId).set({
+                                fileName: activeFileName,
+                                inductedDate: batchInductedDate,
+                                uploadedAt: fileUploadTime,
+                                recordCount: results.data.length
+                            });
+                        }
+
+                        let incrementalDelivered = 0;
+                        let incrementalRtoDone = 0;
+                        const writeBatches = [];
+                        let currentBatch = db.batch();
+                        let opCount = 0;
+
+                        results.data.forEach(row => {
+                            const rawTrackingId = getField(row, ['trackingid', 'shipmentid', 'tracking_id', 'tracking']);
+                            const cleanTrackingId = sanitizeTrackingId(rawTrackingId);
+                            if (!cleanTrackingId || cleanTrackingId === 'N/A') return;
+
+                            const computedStatus = computeCurrentStatus(row);
+                            const rawLastUpdated = getField(row, ['lastupdatedtime', 'last_updated_time', 'date', 'lastupdated']);
+                            const docRef = db.collection("shipments").doc(cleanTrackingId);
+
+                            if (computedStatus === 'Delivered') {
+                                incrementalDelivered++;
+                                currentBatch.set(docRef, { 
+                                    status: computedStatus, 
+                                    isArchived: true, 
+                                    lastUpdatedTime: cleanDateString(rawLastUpdated) 
+                                }, { merge: true });
+                            } else if (computedStatus === 'RTO Done') {
+                                incrementalRtoDone++;
+                                currentBatch.set(docRef, { 
+                                    status: computedStatus, 
+                                    isArchived: true, 
+                                    lastUpdatedTime: cleanDateString(rawLastUpdated) 
+                                }, { merge: true });
+                            } else {
+                                if (selectedUploadType === 'LATEST') {
+                                    // In-Day Status Update: strictly updates status and timestamp only
+                                    currentBatch.set(docRef, {
+                                        status: computedStatus,
+                                        lastUpdatedTime: cleanDateString(rawLastUpdated)
+                                    }, { merge: true });
+                                } else {
+                                    // Fresh Shift Induction: sets all induction properties
+                                    const driverId = extractDriverIdFromRow(row);
+                                    const receivableVal = getField(row, ['receivableamount', 'receivable_amount', 'amount']);
+                                    const rowInductedDate = batchInductedDate !== 'N/A' ? batchInductedDate : cleanDateString(getField(row, ['inducteddate', 'inductdate', 'inducted_date']));
+
+                                    currentBatch.set(docRef, {
+                                        week: getWeekFromInductedDate(rowInductedDate),
+                                        inductedDate: cleanDateString(rowInductedDate),
+                                        driverId: driverId,
+                                        type: getType(receivableVal),
+                                        status: computedStatus,
+                                        lastUpdatedTime: cleanDateString(rawLastUpdated),
+                                        isArchived: false
+                                    }, { merge: true });
+                                }
+                            }
+
+                            opCount++;
+                            if (opCount % 400 === 0) {
+                                writeBatches.push(currentBatch);
+                                currentBatch = db.batch();
+                            }
+                        });
+
+                        writeBatches.push(currentBatch);
+
+                        // Execute batch writes sequentially to avoid network throttling
+                        for (let i = 0; i < writeBatches.length; i++) {
+                            syncBadge.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Writing chunk ${i + 1}/${writeBatches.length}...`;
+                            await writeBatches[i].commit();
+                        }
+
+                        // Atomic increment for metrics
+                        if (incrementalDelivered > 0 || incrementalRtoDone > 0) {
+                            const mRef = db.collection("metrics").doc("overall");
+                            await db.runTransaction(async (t) => {
+                                const doc = await t.get(mRef);
+                                let curD = 0, curR = 0;
+                                if (doc.exists) {
+                                    curD = doc.data().delivered || 0;
+                                    curR = doc.data().rtoDone || 0;
+                                }
+                                t.set(mRef, { delivered: curD + incrementalDelivered, rtoDone: curR + incrementalRtoDone }, { merge: true });
+                            });
+                        }
+
+                        syncBadge.className = 'bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                        syncBadge.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i> Live Realtime Sync';
+                        alert(`Successfully uploaded and committed ${results.data.length} records!`);
+
+                    } catch (err) {
+                        console.error("Batch Commit Error:", err);
+                        syncBadge.className = 'bg-rose-950 text-rose-300 border border-rose-700 text-[10px] px-2.5 py-0.5 rounded-full font-bold';
+                        syncBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Upload Failed';
+                        alert("Upload failed: " + (err.message.includes("quota") ? "Firebase Daily Write Quota Exceeded (20,000/day limit on Free Plan)." : err.message));
+                    } finally {
+                        csvFileInput.value = '';
+                        pendingFile = null;
+                    }
                 }
             });
         });
 
+        // -------------------------------------------------------------
+        // 6. ASSOCIATE MANAGEMENT & JSON IMPORT/EXPORT
+        // -------------------------------------------------------------
         openManageAssociatesModal.addEventListener('click', () => manageAssociatesModal.classList.remove('hidden'));
         closeModalBtn.addEventListener('click', () => manageAssociatesModal.classList.add('hidden'));
         closeModalBottomBtn.addEventListener('click', () => manageAssociatesModal.classList.add('hidden'));
 
         saveUpdateAssocBtn.addEventListener('click', async () => {
-            const id = assocDriverId.value.trim();
+            const id = assocDriverId.value.trim().toUpperCase();
             const name = assocName.value.trim();
             const fac = assocFacility.value.trim();
             const type = assocType.value;
 
-            if (id && name) {
-                associateMap[id] = { name: name, facilityId: fac || 'N/A', type: type };
-                localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
+            if (id && name && db) {
+                await db.collection("associates").doc(id).set({
+                    name: name,
+                    facilityId: fac || 'N/A',
+                    type: type
+                });
                 assocDriverId.value = '';
                 assocName.value = '';
                 assocFacility.value = '';
-                renderAssociatesList();
-                refreshAssociateMappingsInDataset();
-                await pushCloudData();
             }
         });
 
@@ -1708,11 +2113,9 @@
         }
 
         async function deleteAssociate(id) {
-            delete associateMap[id];
-            localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
-            renderAssociatesList();
-            refreshAssociateMappingsInDataset();
-            await pushCloudData();
+            if (confirm(`Delete driver ID ${id}?`) && db) {
+                await db.collection("associates").doc(id).delete();
+            }
         }
 
         function renderAssociatesList() {
@@ -1720,7 +2123,7 @@
             assocCountLabel.innerText = `${keys.length} Driver Mappings Saved`;
 
             if (keys.length === 0) {
-                assocTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No driver mappings saved for this sheet tracker.</td></tr>`;
+                assocTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No driver mappings stored in Firestore.</td></tr>`;
                 return;
             }
 
@@ -1741,65 +2144,148 @@
             }).join('');
         }
 
-        function refreshAssociateMappingsInDataset() {
-            currentDataset = currentDataset.map(item => ({
-                ...item,
-                associateName: getAssociateName(item.driverId)
-            }));
+        if (exportJsonBtn) {
+            exportJsonBtn.addEventListener('click', () => {
+                if (Object.keys(associateMap).length === 0) {
+                    return alert('No associate mappings available to export.');
+                }
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(associateMap, null, 2));
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.setAttribute("download", `associate_master_${new Date().toISOString().slice(0, 10)}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+            });
+        }
+
+        if (importJsonInput) {
+            importJsonInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file || !db) return;
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const importedData = JSON.parse(event.target.result);
+                        if (typeof importedData !== 'object' || importedData === null) {
+                            throw new Error('Invalid JSON format');
+                        }
+
+                        const entries = Object.entries(importedData);
+                        if (entries.length === 0) return alert('JSON file is empty.');
+
+                        const writeBatches = [];
+                        let currentBatch = db.batch();
+                        let opCount = 0;
+
+                        entries.forEach(([rawKey, val]) => {
+                            const cleanId = String(rawKey).trim().toUpperCase();
+                            if (!cleanId) return;
+
+                            let assocData = {
+                                name: typeof val === 'object' && val !== null ? (val.name || cleanId) : String(val),
+                                facilityId: typeof val === 'object' && val !== null ? (val.facilityId || 'N/A') : 'N/A',
+                                type: typeof val === 'object' && val !== null ? (val.type || 'NDA-Bike') : 'NDA-Bike'
+                            };
+
+                            const docRef = db.collection("associates").doc(cleanId);
+                            currentBatch.set(docRef, assocData, { merge: true });
+
+                            opCount++;
+                            if (opCount % 400 === 0) {
+                                writeBatches.push(currentBatch.commit());
+                                currentBatch = db.batch();
+                            }
+                        });
+
+                        writeBatches.push(currentBatch.commit());
+                        await Promise.all(writeBatches);
+
+                        importJsonInput.value = '';
+                        alert(`Successfully imported ${entries.length} associate mappings to Firestore!`);
+                    } catch (err) {
+                        console.error("JSON Import Error:", err);
+                        alert('Failed to import JSON file. Please ensure it is a valid format.');
+                    }
+                };
+                reader.readAsText(file);
+            });
+        }
+
+        // -------------------------------------------------------------
+        // 7. TAB ROUTING & FILTERS
+        // -------------------------------------------------------------
+        tabModule1.addEventListener('click', () => switchTabs(tabModule1, module1View));
+        tabModule2.addEventListener('click', () => { switchTabs(tabModule2, module2View); applyFiltersAndRender(); });
+        tabModule3.addEventListener('click', () => { switchTabs(tabModule3, module3View); renderTtTable(); });
+        tabModule4.addEventListener('click', () => { switchTabs(tabModule4, module4View); renderHfcrTable(); setTimeout(() => { if (hfcrScanInput) hfcrScanInput.focus(); }, 100); });
+
+        function switchTabs(activeTabEl, activeViewEl) {
+            [tabModule1, tabModule2, tabModule3, tabModule4].forEach(t => {
+                t.classList.remove('active-tab');
+                t.classList.add('text-slate-400');
+            });
+            [module1View, module2View, module3View, module4View].forEach(v => v.classList.add('hidden'));
+
+            activeTabEl.classList.add('active-tab');
+            activeTabEl.classList.remove('text-slate-400');
+            activeViewEl.classList.remove('hidden');
+        }
+
+        function updateBadges() {
+            const ttShipments = currentDataset.filter(item => {
+                const eff = getEffectiveStatus(item);
+                return eff === 'TT Raised' || eff === 'Physically Not Available';
+            });
+            ttCountBadge.innerText = ttShipments.length;
+
+            const hfcrShipments = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
+            hfcrCountBadge.innerText = hfcrShipments.length;
+        }
+
+        function filterM1TableByStatus(statusName) {
+            activeSelectedCardStatus = (activeSelectedCardStatus === statusName) ? null : statusName;
+
+            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
+            if (activeSelectedCardStatus) {
+                const cardMap = {
+                    'Delivery Failed': 'card_DeliveryFailed',
+                    'Delivery Rejected': 'card_DeliveryRejected',
+                    'Out On Road': 'card_OutOnRoad',
+                    'Hold For Redelivery': 'card_HoldRedelivery',
+                    'Core - Dwell': 'card_CoreDwell',
+                    'Ready For Fc Return / RTO Pending': 'card_RtoPending',
+                    'Hold For Customer Request': 'card_HoldCustomerReq',
+                    'Undeliverable': 'card_Undeliverable',
+                    'Damaged': 'card_Damaged',
+                    'DATA_EXCEPTION': 'card_DataException',
+                    'AGEING_5': 'card_Ageing5',
+                    'CRITICAL_AGEING': 'card_CriticalAgeing'
+                };
+                const activeId = cardMap[activeSelectedCardStatus];
+                if (activeId && document.getElementById(activeId)) {
+                    document.getElementById(activeId).classList.add('active-card-filter');
+                }
+            }
+
+            renderDashboard();
+            const reportCard = document.getElementById('m1ReportCard');
+            if (reportCard) reportCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function clearM1CardFilter() {
+            activeSelectedCardStatus = null;
+            document.querySelectorAll('[id^="card_"]').forEach(card => card.classList.remove('active-card-filter'));
             renderDashboard();
         }
 
-        exportJsonBtn.addEventListener('click', () => {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(associateMap, null, 2));
-            const downloadAnchor = document.createElement('a');
-            downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", "standalone_associate_mappings.json");
-            document.body.appendChild(downloadAnchor);
-            downloadAnchor.click();
-            downloadAnchor.remove();
-        });
-
-        importJsonInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                try {
-                    const importedMap = JSON.parse(event.target.result);
-                    associateMap = { ...associateMap, ...importedMap };
-                    localStorage.setItem(STORAGE_KEY_ASSOC, JSON.stringify(associateMap));
-                    renderAssociatesList();
-                    refreshAssociateMappingsInDataset();
-                    await pushCloudData();
-                    alert('Associate mappings updated successfully!');
-                } catch (err) {
-                    alert('Invalid JSON file format!');
-                }
-            };
-            reader.readAsText(file);
-        });
-
-        tabModule1.addEventListener('click', () => {
-            tabModule1.classList.add('active-tab');
-            tabModule1.classList.remove('text-slate-400');
-            tabModule2.classList.remove('active-tab');
-            tabModule2.classList.add('text-slate-400');
-            tabModule3.classList.remove('active-tab');
-            tabModule3.classList.add('text-slate-400');
-            tabModule4.classList.remove('active-tab');
-            tabModule4.classList.add('text-slate-400');
-
-            module1View.classList.remove('hidden');
-            module2View.classList.add('hidden');
-            module3View.classList.add('hidden');
-            module4View.classList.add('hidden');
-        });
-
-        tabModule2.addEventListener('click', () => switchToModule2());
-        tabModule3.addEventListener('click', () => switchToModule3());
-        tabModule4.addEventListener('click', () => switchToModule4());
-
-        searchInput.addEventListener('input', () => applyFiltersAndRender());
+        function viewAllTrackingIdsForActiveCard() {
+            if (!activeSelectedCardStatus) return;
+            const isAgeing5View = (activeSelectedCardStatus === 'AGEING_5');
+            const isCrit10View = (activeSelectedCardStatus === 'CRITICAL_AGEING');
+            viewAssociateTrackingIds(null, activeSelectedCardStatus, isCrit10View ? '10' : (isAgeing5View ? '5' : null));
+        }
 
         function sortTable(columnKey) {
             currentSort.asc = (currentSort.column === columnKey) ? !currentSort.asc : true;
@@ -1813,59 +2299,98 @@
             renderDashboard();
         }
 
-        function applyFiltersAndRender() {
-            let filtered = [...currentDataset];
+        function toggleDropdown(id) {
+            const el = document.getElementById(id);
+            const isHidden = el.classList.contains('hidden');
+            document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+            if (isHidden) el.classList.remove('hidden');
+        }
 
-            const q = searchInput.value.toLowerCase();
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.relative')) {
+                document.querySelectorAll('[id^="dropdown"]').forEach(d => d.classList.add('hidden'));
+            }
+        });
+
+        function getCheckedValues(className) {
+            return Array.from(document.querySelectorAll(`.${className}:checked`)).map(cb => cb.value);
+        }
+
+        function onMultiFilterChange() {
             const selectedDates = getCheckedValues('multi-date-cb');
+            document.getElementById('lblMultiDate').innerText = selectedDates.length > 0 ? `${selectedDates.length} Dates` : 'Day Wise Date';
+
             const selectedTypes = getCheckedValues('multi-type-cb');
+            document.getElementById('lblMultiType').innerText = selectedTypes.length > 0 ? `${selectedTypes.length} Types` : 'All Types';
+
             const selectedStatuses = getCheckedValues('multi-status-cb');
+            document.getElementById('lblMultiStatus').innerText = selectedStatuses.length > 0 ? `${selectedStatuses.length} Statuses` : 'Active Statuses';
+
             const selectedAssocs = getCheckedValues('multi-assoc-cb');
-            const onlyAgeing5 = document.getElementById('chkAgeing5Only').checked;
-            const onlyCritical10 = document.getElementById('chkCriticalOnly').checked;
+            document.getElementById('lblMultiAssociate').innerText = selectedAssocs.length > 0 ? `${selectedAssocs.length} Associates` : 'Associate View';
 
-            if (q) {
-                filtered = filtered.filter(item => 
-                    item.trackingId.toLowerCase().includes(q) ||
-                    item.associateName.toLowerCase().includes(q) ||
-                    item.driverId.toLowerCase().includes(q)
-                );
-            }
-            if (selectedDates.length > 0) filtered = filtered.filter(i => selectedDates.includes(cleanDateString(i.inductedDate)));
-            if (selectedTypes.length > 0) filtered = filtered.filter(i => selectedTypes.includes(i.type));
-            if (selectedStatuses.length > 0) filtered = filtered.filter(i => selectedStatuses.includes(getEffectiveStatus(i)));
-            if (selectedAssocs.length > 0) filtered = filtered.filter(i => selectedAssocs.includes(i.associateName));
-            
-            if (onlyCritical10) {
-                filtered = filtered.filter(i => isCriticalAgeing10(getEffectiveStatus(i), i.inductedDate));
-            } else if (onlyAgeing5) {
-                filtered = filtered.filter(i => isAgeing5(getEffectiveStatus(i), i.inductedDate));
-            }
+            applyFiltersAndRender();
+        }
 
-            if (currentSort.column) {
-                filtered.sort((a, b) => {
-                    let valA, valB;
-                    if (currentSort.column === 'ageingDays') {
-                        valA = calculateAgeingDays(a.inductedDate);
-                        valB = calculateAgeingDays(b.inductedDate);
-                        return currentSort.asc ? valA - valB : valB - valA;
-                    } else if (currentSort.column === 'status') {
-                        valA = getEffectiveStatus(a);
-                        valB = getEffectiveStatus(b);
-                        let comp = valA.localeCompare(valB, undefined, { numeric: true });
-                        return currentSort.asc ? comp : -comp;
-                    } else {
-                        valA = a[currentSort.column] || '';
-                        valB = b[currentSort.column] || '';
-                        let comp = valA.localeCompare(valB, undefined, { numeric: true });
-                        return currentSort.asc ? comp : -comp;
-                    }
-                });
+        function onAgeingCheckboxChange(changed) {
+            if (changed === '5' && document.getElementById('chkAgeing5Only').checked) {
+                document.getElementById('chkCriticalOnly').checked = false;
+            } else if (changed === '10' && document.getElementById('chkCriticalOnly').checked) {
+                document.getElementById('chkAgeing5Only').checked = false;
             }
+            applyFiltersAndRender();
+        }
 
-            currentlyFilteredData = filtered;
-            document.getElementById('recordCountLabel').innerText = `Showing ${filtered.length} of ${currentDataset.length} active exception records`;
-            renderTrackingTable(filtered);
+        function resetAllModule2Filters() {
+            document.getElementById('activeQuickFilterBanner').classList.add('hidden');
+            searchInput.value = '';
+            document.getElementById('chkAgeing5Only').checked = false;
+            document.getElementById('chkCriticalOnly').checked = false;
+            document.querySelectorAll('.multi-date-cb, .multi-type-cb, .multi-status-cb, .multi-assoc-cb').forEach(cb => cb.checked = false);
+            document.getElementById('lblMultiDate').innerText = 'Day Wise Date';
+            document.getElementById('lblMultiType').innerText = 'All Types';
+            document.getElementById('lblMultiStatus').innerText = 'Active Statuses';
+            document.getElementById('lblMultiAssociate').innerText = 'Associate View';
+            applyFiltersAndRender();
+        }
+
+        searchInput.addEventListener('input', () => applyFiltersAndRender());
+
+        // -------------------------------------------------------------
+        // 8. DASHBOARD & REPORT RENDERING
+        // -------------------------------------------------------------
+        function populateModule1Filters() {
+            renderCalendar();
+
+            const uniqueAssocs = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
+            const currAssocSel = module1AssocFilter.value;
+            module1AssocFilter.innerHTML = `<option value="">All Associates</option>` + 
+                uniqueAssocs.map(a => `<option value="${a}">${a}</option>`).join('');
+            if (uniqueAssocs.includes(currAssocSel)) module1AssocFilter.value = currAssocSel;
+        }
+
+        function populateMultiSelectDropdowns() {
+            const dates = [...new Set(currentDataset.map(i => formatDateOnly(i.inductedDate)))].filter(d => d && d !== 'N/A').sort();
+            const statuses = [...new Set(currentDataset.map(i => getEffectiveStatus(i)))].filter(Boolean).sort();
+            const associates = [...new Set(currentDataset.map(i => i.associateName))].filter(Boolean).sort();
+
+            document.getElementById('dropdownDate').innerHTML = dates.map(d => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${d}" onchange="onMultiFilterChange()" class="multi-date-cb"> ${d}
+                </label>
+            `).join('');
+
+            document.getElementById('dropdownStatus').innerHTML = statuses.map(s => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${s}" onchange="onMultiFilterChange()" class="multi-status-cb"> ${s}
+                </label>
+            `).join('');
+
+            document.getElementById('dropdownAssociate').innerHTML = associates.map(a => `
+                <label class="flex items-center gap-2 p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-300">
+                    <input type="checkbox" value="${a}" onchange="onMultiFilterChange()" class="multi-assoc-cb"> ${a}
+                </label>
+            `).join('');
         }
 
         function renderDashboard() {
@@ -1891,8 +2416,7 @@
                 'Ready For Fc Return / RTO Pending': 0,
                 'Hold For Customer Request': 0,
                 'Undeliverable': 0,
-                'Damaged': 0,
-                'At Wrong station': 0
+                'Damaged': 0
             };
 
             let globalAgeing5Count = 0;
@@ -1925,7 +2449,6 @@
                 if (hasAgeing5) associateExceptionCounts[assoc][effectiveSt].ageing5Count++;
                 if (hasCritical10) associateExceptionCounts[assoc][effectiveSt].criticalAgeingCount++;
 
-                // Virtual bucket: DATA_EXCEPTION (All statuses except Damaged, Delivered, RTO Done)
                 const isDataExceptionItem = effectiveSt !== 'Damaged' && effectiveSt !== 'Delivered' && effectiveSt !== 'RTO Done';
                 if (!associateExceptionCounts[assoc]['DATA_EXCEPTION']) {
                     associateExceptionCounts[assoc]['DATA_EXCEPTION'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
@@ -1933,14 +2456,11 @@
                 if (isDataExceptionItem) {
                     associateExceptionCounts[assoc]['DATA_EXCEPTION'].count++;
                     associateExceptionCounts[assoc]['DATA_EXCEPTION'].totalAgeing += ageing;
-                    if (ageing > associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing) {
-                        associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing = ageing;
-                    }
+                    if (ageing > associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing) associateExceptionCounts[assoc]['DATA_EXCEPTION'].maxAgeing = ageing;
                     if (hasAgeing5) associateExceptionCounts[assoc]['DATA_EXCEPTION'].ageing5Count++;
                     if (hasCritical10) associateExceptionCounts[assoc]['DATA_EXCEPTION'].criticalAgeingCount++;
                 }
 
-                // Virtual bucket: AGEING_5
                 if (!associateExceptionCounts[assoc]['AGEING_5']) {
                     associateExceptionCounts[assoc]['AGEING_5'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
                 }
@@ -1948,12 +2468,9 @@
                     associateExceptionCounts[assoc]['AGEING_5'].count++;
                     associateExceptionCounts[assoc]['AGEING_5'].ageing5Count++;
                     associateExceptionCounts[assoc]['AGEING_5'].totalAgeing += ageing;
-                    if (ageing > associateExceptionCounts[assoc]['AGEING_5'].maxAgeing) {
-                        associateExceptionCounts[assoc]['AGEING_5'].maxAgeing = ageing;
-                    }
+                    if (ageing > associateExceptionCounts[assoc]['AGEING_5'].maxAgeing) associateExceptionCounts[assoc]['AGEING_5'].maxAgeing = ageing;
                 }
 
-                // Virtual bucket: CRITICAL_AGEING (>10D)
                 if (!associateExceptionCounts[assoc]['CRITICAL_AGEING']) {
                     associateExceptionCounts[assoc]['CRITICAL_AGEING'] = { count: 0, maxAgeing: 0, totalAgeing: 0, ageing5Count: 0, criticalAgeingCount: 0 };
                 }
@@ -1961,25 +2478,18 @@
                     associateExceptionCounts[assoc]['CRITICAL_AGEING'].count++;
                     associateExceptionCounts[assoc]['CRITICAL_AGEING'].criticalAgeingCount++;
                     associateExceptionCounts[assoc]['CRITICAL_AGEING'].totalAgeing += ageing;
-                    if (ageing > associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing) {
-                        associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing = ageing;
-                    }
+                    if (ageing > associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing) associateExceptionCounts[assoc]['CRITICAL_AGEING'].maxAgeing = ageing;
                 }
 
                 const m1Cat = computeModule1StatusCategory(effectiveSt);
                 if (m1Cat === 'EXCLUDE') return;
 
-                let isFailed = (m1Cat === 'FAILED');
-                let isRejected = (m1Cat === 'REJECTED');
-                let isOutOnRoad = (m1Cat === 'OUT_ON_ROAD');
-
                 if (!associateStats[assoc]) {
                     associateStats[assoc] = { failed: 0, rejected: 0, outOnRoad: 0, ageing5: 0, criticalAgeing10: 0 };
                 }
-                
-                if (isFailed) associateStats[assoc].failed++;
-                if (isRejected) associateStats[assoc].rejected++;
-                if (isOutOnRoad) associateStats[assoc].outOnRoad++;
+                if (m1Cat === 'FAILED') associateStats[assoc].failed++;
+                if (m1Cat === 'REJECTED') associateStats[assoc].rejected++;
+                if (m1Cat === 'OUT_ON_ROAD') associateStats[assoc].outOnRoad++;
                 if (hasAgeing5) associateStats[assoc].ageing5++;
                 if (hasCritical10) associateStats[assoc].criticalAgeing10++;
             });
@@ -1996,24 +2506,20 @@
             document.getElementById('statDelivered').innerText = cumulativeDeliveredCount;
             document.getElementById('statRtoDone').innerText = cumulativeRtoDoneCount;
 
-            let dataExceptionCount = m1Dataset.filter(item => {
+            document.getElementById('statDataException').innerText = m1Dataset.filter(item => {
                 const st = getEffectiveStatus(item);
                 return st !== 'Damaged' && st !== 'Delivered' && st !== 'RTO Done';
             }).length;
-            document.getElementById('statDataException').innerText = dataExceptionCount;
 
             document.getElementById('statFailed').innerText = counts['Delivery Failed'];
             document.getElementById('statRejected').innerText = counts['Delivery Rejected'];
             document.getElementById('statOutOnRoad').innerText = counts['Out On Road'];
-
             document.getElementById('statHoldRedelivery').innerText = counts['Hold For Redelivery'];
             document.getElementById('statCoreDwell').innerText = counts['Core - Dwell'];
             document.getElementById('statRtoPending').innerText = counts['Ready For Fc Return / RTO Pending'];
             document.getElementById('statHoldCustomerReq').innerText = counts['Hold For Customer Request'];
-
             document.getElementById('statUndeliverable').innerText = counts['Undeliverable'];
             document.getElementById('statDamaged').innerText = counts['Damaged'];
-            document.getElementById('statWrongStation').innerText = counts['At Wrong station'];
 
             const assocTableBody = document.getElementById('associateSummaryTable');
             const assocTableFooter = document.getElementById('associateSummaryFooter');
@@ -2025,7 +2531,7 @@
                 
                 let titleLabel = activeSelectedCardStatus;
                 if (isAgeing5View) titleLabel = 'Ageing (>5 Days)';
-                if (isCrit10View) titleLabel = 'Critical Ageing (>10 Days Warning)';
+                if (isCrit10View) titleLabel = 'Critical Ageing (>10 Days)';
                 if (isDataView) titleLabel = 'DATA (Exc. Damaged/DLV/RTO)';
 
                 m1TableTitle.innerHTML = `
@@ -2036,17 +2542,18 @@
                     </div>
                 `;
                 clearM1CardFilterBtn.classList.remove('hidden');
+                viewAllSelectedCardIdsBtn.classList.remove('hidden');
 
                 m1TableHeader.innerHTML = `
                     <tr>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('name')">Associate Name <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('exceptionCount')">${titleLabel} Count <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('avgAgeing')">Avg Ageing <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
-                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('maxAgeing')">Max Ageing (Days) <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
+                        <th class="px-4 py-3 sort-header" onclick="sortM1Table('maxAgeing')">Max Ageing <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('ageing5Count')">&gt;5 Days <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('criticalAgeingCount')">&gt;10 Days <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
                         <th class="px-4 py-3 sort-header" onclick="sortM1Table('totalAssigned')">Active Exceptions <i class="fa-solid fa-sort text-slate-500 ml-1"></i></th>
-                        <th class="px-4 py-3 text-right">Action</th>
+                        <th class="px-4 py-3 text-right">Associate Action</th>
                     </tr>
                 `;
 
@@ -2056,12 +2563,11 @@
                     Object.keys(associateExceptionCounts[name]).forEach(k => {
                         if (k !== 'AGEING_5' && k !== 'CRITICAL_AGEING' && k !== 'DATA_EXCEPTION') totalAssigned += associateExceptionCounts[name][k].count;
                     });
-                    const avgAgeing = data.count > 0 ? (data.totalAgeing / data.count).toFixed(1) : 0;
                     return {
                         name: name,
                         exceptionCount: data.count,
                         totalAgeing: data.totalAgeing,
-                        avgAgeing: parseFloat(avgAgeing),
+                        avgAgeing: data.count > 0 ? parseFloat((data.totalAgeing / data.count).toFixed(1)) : 0,
                         maxAgeing: data.maxAgeing,
                         ageing5Count: data.ageing5Count || 0,
                         criticalAgeingCount: data.criticalAgeingCount || 0,
@@ -2073,8 +2579,7 @@
                     assocEntries.sort((a, b) => {
                         let valA = a[currentM1Sort.column];
                         let valB = b[currentM1Sort.column];
-                        let comp = typeof valA === 'string' ? valA.localeCompare(valB, undefined, { numeric: true }) : parseFloat(valA) - parseFloat(valB);
-                        return currentM1Sort.asc ? comp : -comp;
+                        return currentM1Sort.asc ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
                     });
                 } else {
                     assocEntries.sort((a, b) => b.exceptionCount - a.exceptionCount);
@@ -2085,13 +2590,9 @@
                 if (assocEntries.length === 0) {
                     assocTableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">No active associates found for "${titleLabel}".</td></tr>`;
                     assocTableFooter.classList.add('hidden');
+                    viewAllTotalCountSpan.innerText = '0';
                 } else {
-                    let totalException = 0;
-                    let totalVolume = 0;
-                    let totalAgeing5 = 0;
-                    let totalCritical10 = 0;
-                    let totalAgeingSum = 0;
-                    let overallMaxAgeing = 0;
+                    let totalException = 0, totalVolume = 0, totalAgeing5 = 0, totalCritical10 = 0, totalAgeingSum = 0, overallMaxAgeing = 0;
 
                     assocTableBody.innerHTML = assocEntries.map(item => {
                         totalException += item.exceptionCount;
@@ -2108,19 +2609,13 @@
                             <tr class="${rowClass}">
                                 <td class="px-4 py-3 font-semibold text-slate-200 flex items-center gap-2">
                                     ${item.name}
-                                    ${hasCrit ? '<span class="bg-rose-900/80 text-rose-300 border border-rose-600 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"><i class="fa-solid fa-triangle-exclamation"></i> Critical &gt;10D</span>' : ''}
+                                    ${hasCrit ? '<span class="bg-rose-900/80 text-rose-300 border border-rose-600 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation"></i> Critical &gt;10D</span>' : ''}
                                 </td>
                                 <td class="px-4 py-3 ${isCrit10View ? 'text-rose-400' : (isDataView ? 'text-teal-400' : 'text-amber-400')} font-extrabold text-sm">${item.exceptionCount}</td>
                                 <td class="px-4 py-3 font-semibold text-slate-300">${item.avgAgeing} Days</td>
-                                <td class="px-4 py-3 font-bold ${item.maxAgeing > 10 ? 'text-rose-400' : (item.maxAgeing > 5 ? 'text-amber-400' : 'text-slate-300')}">
-                                    ${item.maxAgeing} Days
-                                </td>
-                                <td class="px-4 py-3 font-bold ${item.ageing5Count > 0 ? 'text-amber-400' : 'text-slate-500'}">
-                                    ${item.ageing5Count > 0 ? item.ageing5Count : '0'}
-                                </td>
-                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeingCount > 0 ? 'text-rose-400' : 'text-slate-500'}">
-                                    ${item.criticalAgeingCount > 0 ? `⚠️ ${item.criticalAgeingCount}` : '0'}
-                                </td>
+                                <td class="px-4 py-3 font-bold ${item.maxAgeing > 10 ? 'text-rose-400' : (item.maxAgeing > 5 ? 'text-amber-400' : 'text-slate-300')}">${item.maxAgeing} Days</td>
+                                <td class="px-4 py-3 font-bold ${item.ageing5Count > 0 ? 'text-amber-400' : 'text-slate-500'}">${item.ageing5Count}</td>
+                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeingCount > 0 ? 'text-rose-400' : 'text-slate-500'}">${item.criticalAgeingCount > 0 ? `⚠️ ${item.criticalAgeingCount}` : '0'}</td>
                                 <td class="px-4 py-3 font-mono text-slate-300">${item.totalAssigned}</td>
                                 <td class="px-4 py-3 text-right">
                                     <button onclick="viewAssociateTrackingIds('${item.name}', '${activeSelectedCardStatus}', '${isCrit10View ? '10' : (isAgeing5View ? '5' : '')}')" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[11px] font-semibold flex items-center gap-1.5 ml-auto shadow-sm">
@@ -2131,29 +2626,30 @@
                         `;
                     }).join('');
 
-                    const overallAvgAgeing = totalException > 0 ? (totalAgeingSum / totalException).toFixed(1) : 0;
+                    viewAllTotalCountSpan.innerText = totalException;
+
                     assocTableFooter.classList.remove('hidden');
                     assocTableFooter.innerHTML = `
                         <tr class="bg-slate-800 border-t-2 border-slate-700 font-extrabold text-white">
-                            <td class="px-4 py-3">TOTAL ${titleLabel.toUpperCase()}</td>
+                            <td class="px-4 py-3">TOTAL (${titleLabel})</td>
                             <td class="px-4 py-3 ${isCrit10View ? 'text-rose-400' : (isDataView ? 'text-teal-400' : 'text-amber-400')} text-sm">${totalException}</td>
-                            <td class="px-4 py-3 text-slate-300">${overallAvgAgeing} Days</td>
+                            <td class="px-4 py-3 text-slate-300">${totalException > 0 ? (totalAgeingSum / totalException).toFixed(1) : 0} Days</td>
                             <td class="px-4 py-3 ${overallMaxAgeing > 10 ? 'text-rose-400' : 'text-amber-400'}">${overallMaxAgeing} Days</td>
                             <td class="px-4 py-3 text-amber-400">${totalAgeing5}</td>
                             <td class="px-4 py-3 text-rose-400">${totalCritical10}</td>
                             <td class="px-4 py-3 font-mono">${totalVolume}</td>
                             <td class="px-4 py-3 text-right">
-                                <button onclick="viewAssociateTrackingIds('', '${activeSelectedCardStatus}', '${isCrit10View ? '10' : (isAgeing5View ? '5' : '')}')" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-[11px] font-semibold">
-                                    View All IDs
+                                <button onclick="viewAllTrackingIdsForActiveCard()" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[11px] font-bold flex items-center gap-1.5 ml-auto shadow-sm">
+                                    <i class="fa-solid fa-layer-group"></i> View All IDs (${totalException})
                                 </button>
                             </td>
                         </tr>
                     `;
                 }
-
             } else {
                 m1TableTitle.innerHTML = `<i class="fa-solid fa-users text-blue-400"></i> Active Exception Performance Breakdown`;
                 clearM1CardFilterBtn.classList.add('hidden');
+                viewAllSelectedCardIdsBtn.classList.add('hidden');
 
                 m1TableHeader.innerHTML = `
                     <tr>
@@ -2168,25 +2664,21 @@
                     </tr>
                 `;
 
-                let assocEntries = Object.entries(associateStats).map(([name, stats]) => {
-                    const rowActiveTotal = stats.failed + stats.rejected + stats.outOnRoad;
-                    return {
-                        name: name,
-                        failed: stats.failed,
-                        rejected: stats.rejected,
-                        outOnRoad: stats.outOnRoad,
-                        ageing5: stats.ageing5,
-                        criticalAgeing10: stats.criticalAgeing10,
-                        total: rowActiveTotal
-                    };
-                });
+                let assocEntries = Object.entries(associateStats).map(([name, stats]) => ({
+                    name: name,
+                    failed: stats.failed,
+                    rejected: stats.rejected,
+                    outOnRoad: stats.outOnRoad,
+                    ageing5: stats.ageing5,
+                    criticalAgeing10: stats.criticalAgeing10,
+                    total: stats.failed + stats.rejected + stats.outOnRoad
+                }));
 
                 if (currentM1Sort.column) {
                     assocEntries.sort((a, b) => {
                         let valA = a[currentM1Sort.column];
                         let valB = b[currentM1Sort.column];
-                        let comp = typeof valA === 'string' ? valA.localeCompare(valB, undefined, { numeric: true }) : parseFloat(valA) - parseFloat(valB);
-                        return currentM1Sort.asc ? comp : -comp;
+                        return currentM1Sort.asc ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
                     });
                 }
 
@@ -2196,15 +2688,15 @@
                     assocTableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">No active exceptions found.</td></tr>`;
                     assocTableFooter.classList.add('hidden');
                 } else {
-                    let grandFailed = 0, grandRejected = 0, grandOutOnRoad = 0, grandActiveVol = 0, grandAgeing5 = 0, grandCritical10 = 0;
+                    let gFailed = 0, gRejected = 0, gOut = 0, gVol = 0, gAgeing5 = 0, gCrit10 = 0;
 
                     assocTableBody.innerHTML = assocEntries.map(item => {
-                        grandFailed += item.failed;
-                        grandRejected += item.rejected;
-                        grandOutOnRoad += item.outOnRoad;
-                        grandActiveVol += item.total;
-                        grandAgeing5 += item.ageing5;
-                        grandCritical10 += item.criticalAgeing10;
+                        gFailed += item.failed;
+                        gRejected += item.rejected;
+                        gOut += item.outOnRoad;
+                        gVol += item.total;
+                        gAgeing5 += item.ageing5;
+                        gCrit10 += item.criticalAgeing10;
 
                         return `
                             <tr class="hover:bg-slate-800/60">
@@ -2212,12 +2704,8 @@
                                 <td class="px-4 py-3 text-rose-400 font-bold">${item.failed}</td>
                                 <td class="px-4 py-3 text-amber-400 font-bold">${item.rejected}</td>
                                 <td class="px-4 py-3 text-indigo-400 font-bold">${item.outOnRoad}</td>
-                                <td class="px-4 py-3 font-bold ${item.ageing5 > 0 ? 'text-amber-400' : 'text-slate-500'}">
-                                    ${item.ageing5 > 0 ? item.ageing5 : '0'}
-                                </td>
-                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeing10 > 0 ? 'text-rose-400' : 'text-slate-500'}">
-                                    ${item.criticalAgeing10 > 0 ? `⚠️ ${item.criticalAgeing10}` : '0'}
-                                </td>
+                                <td class="px-4 py-3 font-bold ${item.ageing5 > 0 ? 'text-amber-400' : 'text-slate-500'}">${item.ageing5}</td>
+                                <td class="px-4 py-3 font-extrabold ${item.criticalAgeing10 > 0 ? 'text-rose-400' : 'text-slate-500'}">${item.criticalAgeing10 > 0 ? `⚠️ ${item.criticalAgeing10}` : '0'}</td>
                                 <td class="px-4 py-3 font-mono font-bold text-white">${item.total}</td>
                                 <td class="px-4 py-3 text-right">
                                     <button onclick="viewAssociateTrackingIds('${item.name}')" class="bg-slate-700 hover:bg-slate-600 text-blue-400 px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 ml-auto">
@@ -2232,12 +2720,12 @@
                     assocTableFooter.innerHTML = `
                         <tr class="bg-slate-800 border-t-2 border-slate-700 font-extrabold text-white">
                             <td class="px-4 py-3">TOTAL EXCEPTIONS</td>
-                            <td class="px-4 py-3 text-rose-400">${grandFailed}</td>
-                            <td class="px-4 py-3 text-amber-400">${grandRejected}</td>
-                            <td class="px-4 py-3 text-indigo-400">${grandOutOnRoad}</td>
-                            <td class="px-4 py-3 text-amber-400">${grandAgeing5}</td>
-                            <td class="px-4 py-3 text-rose-400 font-extrabold">${grandCritical10}</td>
-                            <td class="px-4 py-3 font-mono">${grandActiveVol}</td>
+                            <td class="px-4 py-3 text-rose-400">${gFailed}</td>
+                            <td class="px-4 py-3 text-amber-400">${gRejected}</td>
+                            <td class="px-4 py-3 text-indigo-400">${gOut}</td>
+                            <td class="px-4 py-3 text-amber-400">${gAgeing5}</td>
+                            <td class="px-4 py-3 text-rose-400 font-extrabold">${gCrit10}</td>
+                            <td class="px-4 py-3 font-mono">${gVol}</td>
                             <td class="px-4 py-3"></td>
                         </tr>
                     `;
@@ -2248,23 +2736,100 @@
             applyFiltersAndRender();
         }
 
-        function copyWhatsAppTableImage() {
-            const tableContainer = document.getElementById('m1ReportCard');
-            if (!tableContainer || currentM1SummaryData.length === 0) return;
+        function viewAssociateTrackingIds(associateName, specificStatus = null, ageingFilterType = null) {
+            resetAllModule2Filters();
 
-            html2canvas(tableContainer, { scale: 4, backgroundColor: '#1e293b' }).then(canvas => {
-                canvas.toBlob(blob => {
-                    try {
-                        const item = new ClipboardItem({ 'image/png': blob });
-                        navigator.clipboard.write([item]);
-                    } catch (e) {
-                        const link = document.createElement('a');
-                        link.download = `Delivery_Report_4K_${module1DateFilter.value || 'Summary'}.png`;
-                        link.href = canvas.toDataURL();
-                        link.click();
+            if (associateName) {
+                document.querySelectorAll('.multi-assoc-cb').forEach(cb => {
+                    if (cb.value === associateName) cb.checked = true;
+                });
+                document.getElementById('lblMultiAssociate').innerText = associateName;
+            } else {
+                document.getElementById('lblMultiAssociate').innerText = 'All Associates';
+            }
+
+            if (specificStatus && specificStatus !== 'AGEING_5' && specificStatus !== 'CRITICAL_AGEING' && specificStatus !== 'DATA_EXCEPTION') {
+                document.querySelectorAll('.multi-status-cb').forEach(cb => {
+                    if (cb.value === specificStatus) cb.checked = true;
+                });
+                document.getElementById('lblMultiStatus').innerText = specificStatus;
+            }
+
+            if (ageingFilterType === '5' || specificStatus === 'AGEING_5') {
+                document.getElementById('chkAgeing5Only').checked = true;
+            } else if (ageingFilterType === '10' || specificStatus === 'CRITICAL_AGEING') {
+                document.getElementById('chkCriticalOnly').checked = true;
+            }
+
+            const m1Date = module1DateFilter.value;
+            if (m1Date) {
+                document.querySelectorAll('.multi-date-cb').forEach(cb => {
+                    if (cb.value === m1Date) cb.checked = true;
+                });
+                document.getElementById('lblMultiDate').innerText = `1 Date (${m1Date})`;
+            }
+
+            const banner = document.getElementById('activeQuickFilterBanner');
+            const bannerLabel = document.getElementById('activeQuickFilterLabel');
+            bannerLabel.innerText = `Associate: ${associateName || 'All Associates'} | Filter: ${specificStatus || 'All Exceptions'}`;
+            banner.classList.remove('hidden');
+
+            switchTabs(tabModule2, module2View);
+            applyFiltersAndRender();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function applyFiltersAndRender() {
+            let filtered = [...currentDataset];
+
+            const q = searchInput.value.toLowerCase();
+            const selectedDates = getCheckedValues('multi-date-cb');
+            const selectedTypes = getCheckedValues('multi-type-cb');
+            const selectedStatuses = getCheckedValues('multi-status-cb');
+            const selectedAssocs = getCheckedValues('multi-assoc-cb');
+            const onlyAgeing5 = document.getElementById('chkAgeing5Only').checked;
+            const onlyCritical10 = document.getElementById('chkCriticalOnly').checked;
+
+            if (q) {
+                filtered = filtered.filter(item => 
+                    item.trackingId.toLowerCase().includes(q) ||
+                    item.associateName.toLowerCase().includes(q) ||
+                    (item.driverId && item.driverId.toLowerCase().includes(q))
+                );
+            }
+            if (selectedDates.length > 0) filtered = filtered.filter(i => selectedDates.includes(cleanDateString(i.inductedDate)));
+            if (selectedTypes.length > 0) filtered = filtered.filter(i => selectedTypes.includes(i.type));
+            if (selectedStatuses.length > 0) filtered = filtered.filter(i => selectedStatuses.includes(getEffectiveStatus(i)));
+            if (selectedAssocs.length > 0) filtered = filtered.filter(i => selectedAssocs.includes(i.associateName));
+            
+            if (onlyCritical10) {
+                filtered = filtered.filter(i => isCriticalAgeing10(getEffectiveStatus(i), i.inductedDate));
+            } else if (onlyAgeing5) {
+                filtered = filtered.filter(i => isAgeing5(getEffectiveStatus(i), i.inductedDate));
+            }
+
+            if (currentSort.column) {
+                filtered.sort((a, b) => {
+                    let valA, valB;
+                    if (currentSort.column === 'ageingDays') {
+                        valA = calculateAgeingDays(a.inductedDate);
+                        valB = calculateAgeingDays(b.inductedDate);
+                        return currentSort.asc ? valA - valB : valB - valA;
+                    } else if (currentSort.column === 'status') {
+                        valA = getEffectiveStatus(a);
+                        valB = getEffectiveStatus(b);
+                        return currentSort.asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                    } else {
+                        valA = a[currentSort.column] || '';
+                        valB = b[currentSort.column] || '';
+                        return currentSort.asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
                     }
                 });
-            });
+            }
+
+            currentlyFilteredData = filtered;
+            document.getElementById('recordCountLabel').innerText = `Showing ${filtered.length} of ${currentDataset.length} active exception records`;
+            renderTrackingTable(filtered);
         }
 
         function renderTrackingTable(data) {
@@ -2296,7 +2861,7 @@
                 if (effectiveSt === 'Physically Not Available') {
                     ageingDisplay = `<span class="text-slate-500">${ageing} D (Excluded)</span>`;
                 } else if (hasCritical10) {
-                    ageingDisplay = `<span class="bg-rose-950 text-rose-300 border border-rose-700 px-2 py-0.5 rounded text-[10px] font-extrabold flex items-center gap-1 w-max animate-pulse"><i class="fa-solid fa-triangle-exclamation"></i> ${ageing} D (&gt;10D)</span>`;
+                    ageingDisplay = `<span class="bg-rose-950 text-rose-300 border border-rose-700 px-2 py-0.5 rounded text-[10px] font-extrabold flex items-center gap-1 w-max"><i class="fa-solid fa-triangle-exclamation"></i> ${ageing} D (&gt;10D)</span>`;
                 } else if (hasAgeing5) {
                     ageingDisplay = `<span class="bg-amber-950 text-amber-300 border border-amber-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 w-max"><i class="fa-solid fa-clock"></i> ${ageing} D (&gt;5D)</span>`;
                 }
@@ -2305,9 +2870,7 @@
                     <tr class="border-b border-slate-800 hover:bg-slate-800/40 ${hasCritical10 ? 'bg-rose-950/25' : (hasAgeing5 ? 'bg-amber-950/15' : '')}">
                         <td class="px-4 py-3 font-medium text-slate-300">${item.week}</td>
                         <td class="px-4 py-3 text-slate-400">${formatDateOnly(item.inductedDate)}</td>
-                        <td class="px-4 py-3 font-bold">
-                            ${ageingDisplay}
-                        </td>
+                        <td class="px-4 py-3 font-bold">${ageingDisplay}</td>
                         <td class="px-4 py-3 font-mono text-white font-semibold">${item.trackingId}</td>
                         <td class="px-4 py-3 text-slate-200 font-medium">${item.associateName}</td>
                         <td class="px-4 py-3">
@@ -2322,17 +2885,9 @@
                             ${hasOverride ? `<span class="block text-[9px] text-amber-400 mt-0.5"><i class="fa-solid fa-user-pen"></i> Overridden</span>` : ''}
                         </td>
                         <td class="px-4 py-3 text-center">
-                            ${hasOverride ? `
-                                <div class="flex items-center justify-center gap-1">
-                                    <button onclick="openManualOverrideModal('${cleanTid}')" class="bg-amber-950/70 hover:bg-amber-900 border border-amber-600/80 text-amber-300 px-2.5 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition">
-                                        <i class="fa-solid fa-pen-to-square text-[10px]"></i> Edit Override
-                                    </button>
-                                </div>
-                            ` : `
-                                <button onclick="openManualOverrideModal('${cleanTid}')" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 hover:text-white px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 mx-auto transition">
-                                    <i class="fa-solid fa-shield-halved text-amber-400 text-[10px]"></i> Set Override
-                                </button>
-                            `}
+                            <button onclick="openManualOverrideModal('${cleanTid}')" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 hover:text-white px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 mx-auto transition">
+                                <i class="fa-solid fa-shield-halved text-amber-400 text-[10px]"></i> Override
+                            </button>
                         </td>
                         <td class="px-4 py-3 text-slate-400">${formatDateOnly(item.lastUpdatedTime)}</td>
                     </tr>
@@ -2340,6 +2895,9 @@
             }).join('');
         }
 
+        // -------------------------------------------------------------
+        // 9. MODULE 3 (TT) & MODULE 4 (HFCR) TABLE RENDERING
+        // -------------------------------------------------------------
         function renderTtTable() {
             const tableBody = document.getElementById('ttDetailsTable');
             const search = (document.getElementById('ttSearchInput')?.value || '').toLowerCase();
@@ -2393,10 +2951,10 @@
                             </select>
                         </td>
                         <td class="px-4 py-3">
-                            <input type="text" value="${ov.remark || ''}" onblur="updateTtRemark('${cleanTid}', this.value)" placeholder="Type remark here..." class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white focus:ring-1 focus:ring-amber-500 outline-none">
+                            <input type="text" value="${ov.remark || ''}" onblur="updateTtRemark('${cleanTid}', this.value)" placeholder="Type remark..." class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white focus:ring-1 focus:ring-amber-500 outline-none">
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <button onclick="resetSingleOverrideFromModule3('${cleanTid}')" title="Revert override to default" class="text-slate-500 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                            <button onclick="resetSingleOverrideFromModule3('${cleanTid}')" class="text-slate-500 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
                                 <i class="fa-solid fa-trash-can"></i>
                             </button>
                         </td>
@@ -2407,7 +2965,6 @@
 
         function setHfcrTableFilter(filterKey) {
             hfcrTableCurrentFilter = filterKey;
-            
             ['ALL', 'VERIFIED', 'MISSING', 'UNEXPECTED'].forEach(k => {
                 const btn = document.getElementById(`hfcrBtnFilter_${k}`);
                 if (k === filterKey) {
@@ -2416,63 +2973,7 @@
                     btn.className = 'text-xs px-3 py-1.5 rounded-lg font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
                 }
             });
-
             renderHfcrTable();
-        }
-
-        async function processManualHfcrScan() {
-            const raw = hfcrScanInput.value.trim();
-            if (!raw) return;
-
-            const cleanScanTid = sanitizeTrackingId(raw);
-            const key = cleanScanTid.toUpperCase();
-
-            const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === key);
-            const nowTime = new Date().toLocaleString();
-
-            hfcrScannedMap[cleanScanTid] = nowTime;
-            localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
-
-            hfcrScanInput.value = '';
-            hfcrScanFeedback.classList.remove('hidden', 'text-emerald-400', 'text-amber-400', 'text-rose-400');
-
-            if (match) {
-                const effectiveSt = getEffectiveStatus(match);
-                if (effectiveSt === 'Hold For Customer Request') {
-                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-emerald-400 flex items-center gap-1.5";
-                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-check"></i> Verified: TID ${cleanScanTid} matched system HFCR inventory!`;
-                } else {
-                    hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-amber-400 flex items-center gap-1.5";
-                    hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Warning: TID ${cleanScanTid} scanned, but its system status is "${effectiveSt}" (Not HFCR).`;
-                }
-            } else {
-                hfcrScanFeedback.className = "mt-2 text-[11px] font-bold text-rose-400 flex items-center gap-1.5";
-                hfcrScanFeedback.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> Foreign / Non-Exception Scan: TID ${cleanScanTid} is not present in active exceptions.`;
-            }
-
-            renderHfcrTable();
-            await pushCloudData();
-
-            setTimeout(() => {
-                if (hfcrScanInput) hfcrScanInput.focus();
-            }, 50);
-        }
-
-        async function removeHfcrScan(tid) {
-            const cleanTid = sanitizeTrackingId(tid);
-            delete hfcrScannedMap[cleanTid];
-            localStorage.setItem(STORAGE_KEY_HFCR_SCANS, JSON.stringify(hfcrScannedMap));
-            renderHfcrTable();
-            await pushCloudData();
-        }
-
-        async function clearHfcrPhysicalScans() {
-            if (confirm("Clear all physical scan records for HFCR?")) {
-                hfcrScannedMap = {};
-                localStorage.removeItem(STORAGE_KEY_HFCR_SCANS);
-                renderHfcrTable();
-                await pushCloudData();
-            }
         }
 
         function renderHfcrTable() {
@@ -2482,20 +2983,15 @@
             const systemHfcrItems = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
             const systemHfcrTidSet = new Set(systemHfcrItems.map(i => sanitizeTrackingId(i.trackingId).toUpperCase()));
 
-            const unexpectedScans = Object.keys(hfcrScannedMap).filter(scannedTid => {
-                return !systemHfcrTidSet.has(scannedTid.toUpperCase());
-            });
+            const unexpectedScans = Object.keys(hfcrScannedMap).filter(scannedTid => !systemHfcrTidSet.has(scannedTid.toUpperCase()));
 
             let verifiedCount = 0;
             let missingCount = 0;
 
             systemHfcrItems.forEach(item => {
                 const cleanTid = sanitizeTrackingId(item.trackingId);
-                if (hfcrScannedMap[cleanTid]) {
-                    verifiedCount++;
-                } else {
-                    missingCount++;
-                }
+                if (hfcrScannedMap[cleanTid]) verifiedCount++;
+                else missingCount++;
             });
 
             document.getElementById('hfcrTotalSystemCount').innerText = systemHfcrItems.length;
@@ -2504,34 +3000,18 @@
             document.getElementById('hfcrUnexpectedCount').innerText = unexpectedScans.length;
 
             let auditRows = [];
-
             if (hfcrTableCurrentFilter === 'ALL') {
-                auditRows = systemHfcrItems.map(i => ({
-                    type: 'SYSTEM_HFCR',
-                    data: i,
-                    scanned: !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)],
-                    scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A'
-                }));
+                auditRows = systemHfcrItems.map(i => ({ type: 'SYSTEM_HFCR', data: i, scanned: !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)], scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A' }));
             } else if (hfcrTableCurrentFilter === 'VERIFIED') {
-                auditRows = systemHfcrItems.filter(i => !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({
-                    type: 'SYSTEM_HFCR',
-                    data: i,
-                    scanned: true,
-                    scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A'
-                }));
+                auditRows = systemHfcrItems.filter(i => !!hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({ type: 'SYSTEM_HFCR', data: i, scanned: true, scanTime: hfcrScannedMap[sanitizeTrackingId(i.trackingId)] || 'N/A' }));
             } else if (hfcrTableCurrentFilter === 'MISSING') {
-                auditRows = systemHfcrItems.filter(i => !hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({
-                    type: 'SYSTEM_HFCR',
-                    data: i,
-                    scanned: false,
-                    scanTime: 'Not Scanned'
-                }));
+                auditRows = systemHfcrItems.filter(i => !hfcrScannedMap[sanitizeTrackingId(i.trackingId)]).map(i => ({ type: 'SYSTEM_HFCR', data: i, scanned: false, scanTime: 'Not Scanned' }));
             } else if (hfcrTableCurrentFilter === 'UNEXPECTED') {
                 auditRows = unexpectedScans.map(tid => {
                     const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === tid.toUpperCase());
                     return {
                         type: 'UNEXPECTED',
-                        data: match || { trackingId: tid, inductedDate: 'N/A', associateName: 'Foreign / Not in CSV', status: 'Unknown' },
+                        data: match || { trackingId: tid, inductedDate: 'N/A', associateName: 'Foreign Scan', status: 'Unknown' },
                         scanned: true,
                         scanTime: hfcrScannedMap[tid] || 'N/A'
                     };
@@ -2547,7 +3027,7 @@
             }
 
             if (auditRows.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">No records found matching current HFCR audit criteria.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400">No records found matching current HFCR criteria.</td></tr>`;
                 return;
             }
 
@@ -2562,7 +3042,7 @@
                 } else if (row.scanned) {
                     checkBadge = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-circle-check mr-1"></i> Physically Verified</span>`;
                 } else {
-                    checkBadge = `<span class="bg-rose-950 text-rose-300 border border-rose-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-clock mr-1"></i> Missing Scan (In System Only)</span>`;
+                    checkBadge = `<span class="bg-rose-950 text-rose-300 border border-rose-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><i class="fa-solid fa-clock mr-1"></i> Missing Scan</span>`;
                 }
 
                 return `
@@ -2577,7 +3057,7 @@
                         <td class="px-4 py-3 text-slate-400 font-mono text-[11px]">${row.scanTime}</td>
                         <td class="px-4 py-3 text-right">
                             ${row.scanned ? `
-                                <button onclick="removeHfcrScan('${cleanTid}')" title="Undo Physical Scan" class="text-slate-400 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                                <button onclick="removeHfcrScan('${cleanTid}')" class="text-slate-400 hover:text-rose-400 text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
                                     <i class="fa-solid fa-trash-can mr-1"></i> Undo
                                 </button>
                             ` : `
@@ -2591,40 +3071,42 @@
             }).join('');
         }
 
+        // -------------------------------------------------------------
+        // 10. EXPORTS (WHATSAPP 4K IMAGE & CSVS)
+        // -------------------------------------------------------------
+        function copyWhatsAppTableImage() {
+            const tableContainer = document.getElementById('m1ReportCard');
+            if (!tableContainer || currentM1SummaryData.length === 0) return;
+
+            html2canvas(tableContainer, { scale: 4, backgroundColor: '#1e293b' }).then(canvas => {
+                canvas.toBlob(blob => {
+                    try {
+                        const item = new ClipboardItem({ 'image/png': blob });
+                        navigator.clipboard.write([item]);
+                        alert("Report copied to clipboard as 4K image! Paste directly into WhatsApp.");
+                    } catch (e) {
+                        const link = document.createElement('a');
+                        link.download = `Delivery_Report_4K_${module1DateFilter.value || 'Summary'}.png`;
+                        link.href = canvas.toDataURL();
+                        link.click();
+                    }
+                });
+            });
+        }
+
         function exportHfcrAuditCsv() {
             const systemHfcrItems = currentDataset.filter(item => getEffectiveStatus(item) === 'Hold For Customer Request');
-            if (systemHfcrItems.length === 0 && Object.keys(hfcrScannedMap).length === 0) {
-                return alert('No HFCR data or physical scans available to export.');
-            }
-
             const exportData = systemHfcrItems.map(item => {
                 const cleanTid = sanitizeTrackingId(item.trackingId);
-                const isScanned = !!hfcrScannedMap[cleanTid];
                 return {
                     'TID': item.trackingId,
                     'Inducted Date': formatDateOnly(item.inductedDate),
                     'Ageing Days': calculateAgeingDays(item.inductedDate),
                     'Associate Name': item.associateName,
                     'System Status': getEffectiveStatus(item),
-                    'Cross-Check Status': isScanned ? 'Physically Verified' : 'Missing Physical Scan',
+                    'Cross-Check Status': !!hfcrScannedMap[cleanTid] ? 'Physically Verified' : 'Missing Physical Scan',
                     'Scan Timestamp': hfcrScannedMap[cleanTid] || 'N/A'
                 };
-            });
-
-            const systemSet = new Set(systemHfcrItems.map(i => sanitizeTrackingId(i.trackingId).toUpperCase()));
-            Object.keys(hfcrScannedMap).forEach(tid => {
-                if (!systemSet.has(tid.toUpperCase())) {
-                    const match = currentDataset.find(r => sanitizeTrackingId(r.trackingId).toUpperCase() === tid.toUpperCase());
-                    exportData.push({
-                        'TID': tid,
-                        'Inducted Date': match ? formatDateOnly(match.inductedDate) : 'N/A',
-                        'Ageing Days': match ? calculateAgeingDays(match.inductedDate) : 'N/A',
-                        'Associate Name': match ? match.associateName : 'Foreign / Not in CSV',
-                        'System Status': match ? getEffectiveStatus(match) : 'Unknown',
-                        'Cross-Check Status': 'Unexpected Physical Scan (Not HFCR in System)',
-                        'Scan Timestamp': hfcrScannedMap[tid]
-                    });
-                }
             });
 
             const csv = Papa.unparse(exportData);
@@ -2642,8 +3124,6 @@
                 const eff = getEffectiveStatus(item);
                 return eff === 'TT Raised' || eff === 'Physically Not Available';
             });
-
-            if (ttItems.length === 0) return alert('No TT Raised data to export.');
 
             const exportData = ttItems.map(item => {
                 const cleanTid = sanitizeTrackingId(item.trackingId);
